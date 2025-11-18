@@ -27,7 +27,7 @@ typedef struct {
 
 // Declarações de funções
 int login_user(char *UID, char *password);
-int logout_user(char *UID);
+int logout_user(char *UID, char *password);
 int register_user(char *UID, char *password);
 int create_event(char *UID, char *name, char *event_date, int attendance_size);
 int close_event(char *UID, char *EID);

@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "event_server.h"
+#include "utils.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/select.h>
 #include <errno.h>
+
 
 #define DEFAULT_PORT "58000"
 #define BUFFER_SIZE 1024
@@ -47,15 +49,26 @@ int login_user(char *UID, char *password) {
     return -1; // Login falhou
 }
 
-int logout_user(char *UID) {
+
+int logout_user(char *UID, char *password) {
     for (int i = 0; i < user_count; i++) {
         if (strcmp(users[i].UID, UID) == 0) {
+            // Verifica se a password está correta
+            if (strcmp(users[i].password, password) != 0) {
+                return -2; // Password incorreta (código especial)
+            }
+            // Verifica se já está logged out
+            if (!users[i].loggedIn) {
+                return -3; // Já não está logado (código especial)
+            }
             users[i].loggedIn = 0; // Marca como não logado
             return 0; // Logout bem-sucedido
         }
     }
-    return -1; // Logout falhou
+    return -1; // Usuário não registrado
 }
+
+
 
 
 int register_user(char *UID, char *password) {
@@ -72,10 +85,11 @@ int register_user(char *UID, char *password) {
     // Adiciona novo usuário
     strcpy(users[user_count].UID, UID);
     strcpy(users[user_count].password, password);
-    users[user_count].loggedIn = 0; // Inicialmente não logado
+    users[user_count].loggedIn = 1; // Auto-login ao registrar (CORRIGIDO)
     user_count++;
     return 0; // Registro bem-sucedido
 }
+
 
 #pragma GCC diagnostic push // atençao, esta aqui para ignorar um erro parvo e maluco 
 #pragma GCC diagnostic ignored "-Wformat-truncation"
@@ -198,10 +212,16 @@ int change_password(char *UID, char *old_password, char *new_password) {
 }
 
 // Função para desregistrar usuário
+// ...existing code...
+
 int unregister_user(char *UID, char *password) {
     for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0 && strcmp(users[i].password, password) == 0) {
-            // Remove o usuário (simplificado - você pode querer reorganizar o array)
+        if (strcmp(users[i].UID, UID) == 0) {
+            // Verifica se a password está correta
+            if (strcmp(users[i].password, password) != 0) {
+                return -2; // Password incorreta
+            }
+            // Remove o usuário
             for (int j = i; j < user_count - 1; j++) {
                 users[j] = users[j + 1];
             }
@@ -209,49 +229,48 @@ int unregister_user(char *UID, char *password) {
             return 0; // Usuário desregistrado
         }
     }
-    return -1; // Falha ao desregistrar
+    return -1; // Usuário não encontrado
 }
 
 
 // Função para processar comandos UDP
+// ...existing code...
+
 void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in *client_addr, socklen_t addr_len) {
     char response[BUFFER_SIZE];
     char command[4];
     char UID[7] = "";
     
-    // Garante que o buffer é null-terminated
     buffer[n] = '\0';
-    
-    // Extrai o comando (primeiros 3 caracteres)
     sscanf(buffer, "%3s", command);
     
     // Log em verbose mode
     if (verbose_mode) {
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(client_addr->sin_addr), client_ip, INET_ADDRSTRLEN);
-        
-        // Extrai UID se disponível
         sscanf(buffer + 4, "%6s", UID);
-        
         printf("Received %s from %s:%d (UID: %s)\n", 
                command, client_ip, ntohs(client_addr->sin_port), 
                strlen(UID) > 0 ? UID : "N/A");
     }
     
     if (strcmp(command, "LIN") == 0) {
-        // Login: LIN UID password\n
         char password[9];
         if (sscanf(buffer, "LIN %6s %8s", UID, password) == 2) {
-            int result = login_user(UID, password);
-            if (result == 0) {
-                snprintf(response, BUFFER_SIZE, "RLI OK\n");
+            // Valida UID e password usando utils
+            if (!validate_uid(UID) || !validate_password(password)) {
+                snprintf(response, BUFFER_SIZE, "RLI ERR\n");
             } else {
-                // Tenta registrar
-                result = register_user(UID, password);
+                int result = login_user(UID, password);
                 if (result == 0) {
-                    snprintf(response, BUFFER_SIZE, "RLI REG\n");
+                    snprintf(response, BUFFER_SIZE, "RLI OK\n");
                 } else {
-                    snprintf(response, BUFFER_SIZE, "RLI NOK\n");
+                    result = register_user(UID, password);
+                    if (result == 0) {
+                        snprintf(response, BUFFER_SIZE, "RLI REG\n");
+                    } else {
+                        snprintf(response, BUFFER_SIZE, "RLI NOK\n");
+                    }
                 }
             }
         } else {
@@ -259,52 +278,71 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
         }
     }
     else if (strcmp(command, "LOU") == 0) {
-        // Logout: LOU UID password\n
         char password[9];
         if (sscanf(buffer, "LOU %6s %8s", UID, password) == 2) {
-            int result = logout_user(UID);
-            if (result == 0) {
-                snprintf(response, BUFFER_SIZE, "RLO OK\n");
+            // Valida UID e password usando utils
+            if (!validate_uid(UID) || !validate_password(password)) {
+                snprintf(response, BUFFER_SIZE, "RLO ERR\n");
             } else {
-                snprintf(response, BUFFER_SIZE, "RLO NOK\n");
+                int result = logout_user(UID, password);
+                if (result == 0) {
+                    snprintf(response, BUFFER_SIZE, "RLO OK\n");
+                } else if (result == -2) {
+                    snprintf(response, BUFFER_SIZE, "RLO WRP\n");
+                } else if (result == -3) {
+                    snprintf(response, BUFFER_SIZE, "RLO UNR\n");
+                } else {
+                    snprintf(response, BUFFER_SIZE, "RLO NOK\n");
+                }
             }
         } else {
             snprintf(response, BUFFER_SIZE, "RLO ERR\n");
         }
     }
     else if (strcmp(command, "LUR") == 0) {
-        // Unregister: LUR UID password\n
         char password[9];
         if (sscanf(buffer, "LUR %6s %8s", UID, password) == 2) {
-            int result = unregister_user(UID, password);
-            if (result == 0) {
-                snprintf(response, BUFFER_SIZE, "RUR OK\n");
+            // Valida UID e password usando utils
+            if (!validate_uid(UID) || !validate_password(password)) {
+                snprintf(response, BUFFER_SIZE, "RUR ERR\n");
             } else {
-                snprintf(response, BUFFER_SIZE, "RUR NOK\n");
+                int result = unregister_user(UID, password);
+                if (result == 0) {
+                    snprintf(response, BUFFER_SIZE, "RUR OK\n");
+                } else if (result == -2) {
+                    snprintf(response, BUFFER_SIZE, "RUR WRP\n");
+                } else {
+                    snprintf(response, BUFFER_SIZE, "RUR NOK\n");
+                }
             }
         } else {
             snprintf(response, BUFFER_SIZE, "RUR ERR\n");
         }
     }
     else if (strcmp(command, "LME") == 0) {
-        // List My Events: LME UID\n
         if (sscanf(buffer, "LME %6s", UID) == 1) {
-            // TODO: Implementar resposta completa
-            snprintf(response, BUFFER_SIZE, "RME OK\n");
+            if (!validate_uid(UID)) {
+                snprintf(response, BUFFER_SIZE, "RME ERR\n");
+            } else {
+                // TODO: Implementar resposta completa
+                snprintf(response, BUFFER_SIZE, "RME OK\n");
+            }
         } else {
             snprintf(response, BUFFER_SIZE, "RME ERR\n");
         }
     }
     else if (strcmp(command, "LEV") == 0) {
-        // List Events: LEV\n
         // TODO: Implementar resposta completa
         snprintf(response, BUFFER_SIZE, "REV OK\n");
     }
     else if (strcmp(command, "LMR") == 0) {
-        // List My Reservations: LMR UID\n
         if (sscanf(buffer, "LMR %6s", UID) == 1) {
-            // TODO: Implementar resposta completa
-            snprintf(response, BUFFER_SIZE, "RMR OK\n");
+            if (!validate_uid(UID)) {
+                snprintf(response, BUFFER_SIZE, "RMR ERR\n");
+            } else {
+                // TODO: Implementar resposta completa
+                snprintf(response, BUFFER_SIZE, "RMR OK\n");
+            }
         } else {
             snprintf(response, BUFFER_SIZE, "RMR ERR\n");
         }
@@ -313,10 +351,11 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
         snprintf(response, BUFFER_SIZE, "ERR\n");
     }
     
-    // Envia resposta
     sendto(udp_fd, response, strlen(response), 0, 
            (struct sockaddr*)client_addr, addr_len);
 }
+
+// ...existing code...
 
 
 

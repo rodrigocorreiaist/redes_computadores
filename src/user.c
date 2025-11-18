@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include "utils.h"
 
 #define DEFAULT_PORT "58000"
 #define BUFFER_SIZE 1024
@@ -44,19 +45,31 @@ int send_udp_command(ClientState *state, const char *command, char *response) {
 
 // Comando: login
 void cmd_login(ClientState *state) {
-    char UID[7], password[9];
+    char UID[10], password[20]; // Buffers maiores para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
     printf("UID (6 dígitos): ");
-    if (scanf("%6s", UID) != 1) {
+    if (scanf("%9s", UID) != 1) {
         printf("Erro ao ler UID\n");
         return;
     }
     
+    // Valida UID
+    if (!validate_uid(UID)) {
+        printf("Erro: UID deve ter exatamente 6 dígitos\n");
+        return;
+    }
+    
     printf("Password (8 caracteres alfanuméricos): ");
-    if (scanf("%8s", password) != 1) {
+    if (scanf("%19s", password) != 1) {
         printf("Erro ao ler password\n");
+        return;
+    }
+    
+    // Valida password
+    if (!validate_password(password)) {
+        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
         return;
     }
     
@@ -81,9 +94,8 @@ void cmd_login(ClientState *state) {
     }
 }
 
-// Comando: logout
 void cmd_logout(ClientState *state) {
-    char password[9];
+    char password[20]; // Buffer maior para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -93,8 +105,14 @@ void cmd_logout(ClientState *state) {
     }
     
     printf("Password: ");
-    if (scanf("%8s", password) != 1) {
+    if (scanf("%19s", password) != 1) {
         printf("Erro ao ler password\n");
+        return;
+    }
+    
+    // Valida password
+    if (!validate_password(password)) {
+        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
         return;
     }
     
@@ -105,15 +123,18 @@ void cmd_logout(ClientState *state) {
             printf("Logout bem-sucedido\n");
             state->logged_in = 0;
             memset(state->UID, 0, sizeof(state->UID));
+        } else if (strncmp(response, "RLO WRP", 7) == 0) {
+            printf("Password incorreta\n");
+        } else if (strncmp(response, "RLO UNR", 7) == 0) {
+            printf("Utilizador não está logged in\n");
         } else {
             printf("Logout falhou: %s", response);
         }
     }
 }
 
-// Comando: unregister
 void cmd_unregister(ClientState *state) {
-    char password[9];
+    char password[20]; // Buffer maior para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -123,23 +144,24 @@ void cmd_unregister(ClientState *state) {
     }
     
     printf("Password: ");
-    if (scanf("%8s", password) != 1) {
+    if (scanf("%19s", password) != 1) {
         printf("Erro ao ler password\n");
         return;
     }
     
-    snprintf(command, BUFFER_SIZE, "LUR %s %s\n", state->UID, password);  // Corrigido: UNR -> LUR
+    // Valida password
+    if (!validate_password(password)) {
+        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
+        return;
+    }
+    
+    snprintf(command, BUFFER_SIZE, "LUR %s %s\n", state->UID, password);
     
     if (send_udp_command(state, command, response) == 0) {
-        if (strncmp(response, "RUR OK", 6) == 0) {
-            printf("Utilizador desregistado\n");
-            state->logged_in = 0;
-            memset(state->UID, 0, sizeof(state->UID));
-        } else {
-            printf("Desregistro falhou: %s", response);
-        }
+        show_reply(response); // processa a resposta
     }
 }
+
 
 // Menu de ajuda
 void print_help() {

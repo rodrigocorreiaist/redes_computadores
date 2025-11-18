@@ -1,28 +1,42 @@
 #ifndef EVENT_SERVER_H
 #define EVENT_SERVER_H
 
-typedef struct {
+// Estrutura de Lista Ligada para Utilizadores
+typedef struct User {
     char UID[7];
     char password[9];
     int loggedIn;
+    struct User *next;
 } User;
 
-typedef struct {
-    char EID[4]; // E + 3digitos + terminador //
+// Estrutura de Lista Ligada para Eventos
+typedef struct Event {
+    char EID[4]; // 3 dígitos + terminador
     char name[11];
     char event_date[20];
     int attendance_size;
     int seats_reserved;
     char owner_UID[7];
-    int status;
+    int status; // 0: ativo, 1: fechado, 2: esgotado, 3: terminado
+    struct Event *next;
 } Event;
 
-typedef struct {
+// Estrutura de Lista Ligada para Reservas
+typedef struct Reservation {
     char UID[7];
     char EID[4];
     int num_people;
     char reservation_date[20];
+    struct Reservation *next;
 } Reservation;
+
+// Variáveis globais (cabeças das listas)
+extern User *user_list;
+extern Event *event_list;
+extern Reservation *reservation_list;
+extern int total_events; // Contador para gerar EIDs únicos
+
+
 
 
 // Declarações de funções

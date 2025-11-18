@@ -10,231 +10,121 @@
 #include <sys/select.h>
 #include <errno.h>
 
-
 #define DEFAULT_PORT "58000"
 #define BUFFER_SIZE 1024
 
-#define INITIAL_CAPACITY 10
+// Inicialização das listas globais
+User *user_list = NULL;
+Event *event_list = NULL;
+Reservation *reservation_list = NULL;
 
-User *users = NULL;
-Event *events = NULL;
-Reservation *reservations = NULL;
-
-int user_count = 0;
-int event_count = 0;
-int reservation_count = 0;
+int total_events = 0; // Contador para gerar EIDs únicos
 int verbose_mode = 0;
 
+// --- Funções Auxiliares ---
 
-void resize_users() {
-    users = realloc(users, (user_count + 1) * sizeof(User));
-}
-
-void resize_events() {
-    events = realloc(events, (event_count + 1) * sizeof(Event));
-}
-
-void resize_reservations() {
-    reservations = realloc(reservations, (reservation_count + 1) * sizeof(Reservation));
-}
-
-
-int login_user(char *UID, char *password) {
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0 && strcmp(users[i].password, password) == 0) {
-            users[i].loggedIn = 1; // Marca como logado
-            return 0; // Login bem-sucedido
-        }
+User* find_user(const char *UID) {
+    User *curr = user_list;
+    while (curr) {
+        if (strcmp(curr->UID, UID) == 0) return curr;
+        curr = curr->next;
     }
-    return -1; // Login falhou
+    return NULL;
 }
 
-
-int logout_user(char *UID, char *password) {
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0) {
-            // Verifica se a password está correta
-            if (strcmp(users[i].password, password) != 0) {
-                return -2; // Password incorreta (código especial)
-            }
-            // Verifica se já está logged out
-            if (!users[i].loggedIn) {
-                return -3; // Já não está logado (código especial)
-            }
-            users[i].loggedIn = 0; // Marca como não logado
-            return 0; // Logout bem-sucedido
-        }
+Event* find_event(const char *EID) {
+    Event *curr = event_list;
+    while (curr) {
+        if (strcmp(curr->EID, EID) == 0) return curr;
+        curr = curr->next;
     }
-    return -1; // Usuário não registrado
+    return NULL;
 }
 
-
-
+// --- Gestão de Utilizadores ---
 
 int register_user(char *UID, char *password) {
-    // Verifica se o UID já está registrado
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0) {
-            return -1; // UID já registrado
-        }
-    }
+    if (find_user(UID)) return -1; // Já existe
 
-    // Redimensiona o array de usuários
-    resize_users();
+    User *new_user = (User *)malloc(sizeof(User));
+    if (!new_user) return -1;
 
-    // Adiciona novo usuário
-    strcpy(users[user_count].UID, UID);
-    strcpy(users[user_count].password, password);
-    users[user_count].loggedIn = 1; // Auto-login ao registrar (CORRIGIDO)
-    user_count++;
-    return 0; // Registro bem-sucedido
-}
+    strcpy(new_user->UID, UID);
+    strcpy(new_user->password, password);
+    new_user->loggedIn = 1; // Auto-login
+    
+    new_user->next = user_list;
+    user_list = new_user;
 
-
-#pragma GCC diagnostic push // atençao, esta aqui para ignorar um erro parvo e maluco 
-#pragma GCC diagnostic ignored "-Wformat-truncation"
-int create_event(char *UID, char *name, char *event_date, int attendance_size) {
-    if (event_count >= 999) {
-        return -1; // Limite de eventos atingido
-    }
-    resize_events();
-
-    // Adiciona novo evento com EID formatado "001", "002", etc.
-    snprintf(events[event_count].EID, sizeof(events[event_count].EID), "%03d", event_count + 1);
-    strcpy(events[event_count].name, name);
-    strcpy(events[event_count].event_date, event_date);
-    events[event_count].attendance_size = attendance_size;
-    events[event_count].seats_reserved = 0;
-    strcpy(events[event_count].owner_UID, UID);
-    events[event_count].status = 0;
-    event_count++;
     return 0;
 }
-#pragma GCC diagnostic pop
 
-int close_event(char *UID, char *EID) {
-    for (int i = 0; i < event_count; i++) {
-        if (strcmp(events[i].EID, EID) == 0 && strcmp(events[i].owner_UID, UID) == 0) {
-            events[i].status = 1; // Marca como fechado
-            return 0; // Fechamento bem-sucedido
-        }
+int login_user(char *UID, char *password) {
+    User *u = find_user(UID);
+    if (!u) return -1;
+    
+    if (strcmp(u->password, password) == 0) {
+        u->loggedIn = 1;
+        return 0;
     }
-    return -1; // Fechamento falhou
+    return -1;
 }
 
-void list_events() {
-    for (int i = 0; i < event_count; i++) {
-        if (events[i].status == 0) { // Apenas eventos ativos
-            printf("EID: %s, Nome: %s, Data: %s, Lugares: %d, Reservados: %d\n",
-                   events[i].EID, events[i].name, events[i].event_date,
-                   events[i].attendance_size, events[i].seats_reserved);
-        }
-    }
+int logout_user(char *UID, char *password) {
+    User *u = find_user(UID);
+    if (!u) return -1; // UNR
+
+    if (strcmp(u->password, password) != 0) return -2; // WRP
+    if (!u->loggedIn) return -3; // NOK
+    
+    u->loggedIn = 0;
+    return 0;
 }
-
-int reserve_seats(char *UID, char *EID, int num_people) {
-    for (int i = 0; i < event_count; i++) {
-        if (strcmp(events[i].EID, EID) == 0 && events[i].status == 0) {
-            if (events[i].seats_reserved + num_people <= events[i].attendance_size) {
-                // Adiciona reserva
-                strcpy(reservations[reservation_count].UID, UID);
-                strcpy(reservations[reservation_count].EID, EID);
-                reservations[reservation_count].num_people = num_people;
-                // Atualiza o número de lugares reservados
-                events[i].seats_reserved += num_people;
-                reservation_count++;
-                return 0; // Reserva bem-sucedida
-            }
-            return -1; // Não há lugares suficientes
-        }
-    }
-    return -1; // Evento não encontrado ou fechado
-}
-
-void list_reservations(char *UID) {
-    for (int i = 0; i < reservation_count; i++) {
-        if (strcmp(reservations[i].UID, UID) == 0) {
-            printf("EID: %s, Lugares Reservados: %d\n", reservations[i].EID, reservations[i].num_people);
-        }
-    }
-}
-
-// ...existing code...
-
-// Função para verificar se um usuário está logado
-int is_user_logged_in(char *UID) {
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0) {
-            return users[i].loggedIn;
-        }
-    }
-    return 0; // Usuário não encontrado
-}
-
-// Função para listar eventos de um usuário específico
-void list_my_events(char *UID) {
-    int found = 0;
-    for (int i = 0; i < event_count; i++) {
-        if (strcmp(events[i].owner_UID, UID) == 0 && events[i].status == 0) {
-            printf("EID: %s, Nome: %s, Data: %s, Lugares: %d, Reservados: %d\n",
-                   events[i].EID, events[i].name, events[i].event_date,
-                   events[i].attendance_size, events[i].seats_reserved);
-            found = 1;
-        }
-    }
-    if (!found) {
-        printf("Nenhum evento ativo encontrado.\n");
-    }
-}
-
-// Função para mostrar detalhes de um evento
-int show_event(char *EID) {
-    for (int i = 0; i < event_count; i++) {
-        if (strcmp(events[i].EID, EID) == 0) {
-            printf("EID: %s\nNome: %s\nData: %s\nLugares Totais: %d\nLugares Reservados: %d\nProprietário: %s\n",
-                   events[i].EID, events[i].name, events[i].event_date,
-                   events[i].attendance_size, events[i].seats_reserved, events[i].owner_UID);
-            return 0;
-        }
-    }
-    return -1; // Evento não encontrado
-}
-
-// Função para alterar senha
-int change_password(char *UID, char *old_password, char *new_password) {
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0 && strcmp(users[i].password, old_password) == 0) {
-            strcpy(users[i].password, new_password);
-            return 0; // Senha alterada com sucesso
-        }
-    }
-    return -1; // Falha ao alterar senha
-}
-
-// Função para desregistrar usuário
-// ...existing code...
 
 int unregister_user(char *UID, char *password) {
-    for (int i = 0; i < user_count; i++) {
-        if (strcmp(users[i].UID, UID) == 0) {
-            // Verifica se a password está correta
-            if (strcmp(users[i].password, password) != 0) {
-                return -2; // Password incorreta
-            }
-            // Remove o usuário
-            for (int j = i; j < user_count - 1; j++) {
-                users[j] = users[j + 1];
-            }
-            user_count--;
-            return 0; // Usuário desregistrado
+    User *curr = user_list;
+    User *prev = NULL;
+
+    while (curr != NULL) {
+        if (strcmp(curr->UID, UID) == 0) {
+            if (strcmp(curr->password, password) != 0) return -2; // WRP
+            if (!curr->loggedIn) return -3; // NOK
+            
+            if (prev == NULL) user_list = curr->next;
+            else prev->next = curr->next;
+            
+            free(curr);
+            return 0;
         }
+        prev = curr;
+        curr = curr->next;
     }
-    return -1; // Usuário não encontrado
+    return -1; // UNR
 }
 
+// --- Gestão de Eventos e Reservas (Skeleton para TCP/UDP) ---
 
-// Função para processar comandos UDP
-// ...existing code...
+int create_event(char *UID, char *name, char *event_date, int attendance_size) {
+    if (total_events >= 999) return -1;
+
+    Event *new_event = (Event *)malloc(sizeof(Event));
+    if (!new_event) return -1;
+
+    total_events++;
+    snprintf(new_event->EID, sizeof(new_event->EID), "%03d", total_events);
+    strcpy(new_event->name, name);
+    strcpy(new_event->event_date, event_date);
+    new_event->attendance_size = attendance_size;
+    new_event->seats_reserved = 0;
+    strcpy(new_event->owner_UID, UID);
+    new_event->status = 0; // 0: ativo
+
+    new_event->next = event_list;
+    event_list = new_event;
+    return 0;
+}
+
+// --- Processamento UDP ---
 
 void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in *client_addr, socklen_t addr_len) {
     char response[BUFFER_SIZE];
@@ -244,7 +134,6 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
     buffer[n] = '\0';
     sscanf(buffer, "%3s", command);
     
-    // Log em verbose mode
     if (verbose_mode) {
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(client_addr->sin_addr), client_ip, INET_ADDRSTRLEN);
@@ -257,20 +146,20 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
     if (strcmp(command, "LIN") == 0) {
         char password[9];
         if (sscanf(buffer, "LIN %6s %8s", UID, password) == 2) {
-            // Valida UID e password usando utils
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, BUFFER_SIZE, "RLI ERR\n");
             } else {
-                int result = login_user(UID, password);
-                if (result == 0) {
-                    snprintf(response, BUFFER_SIZE, "RLI OK\n");
-                } else {
-                    result = register_user(UID, password);
-                    if (result == 0) {
-                        snprintf(response, BUFFER_SIZE, "RLI REG\n");
+                User *u = find_user(UID);
+                if (u) {
+                    if (strcmp(u->password, password) == 0) {
+                        u->loggedIn = 1;
+                        snprintf(response, BUFFER_SIZE, "RLI OK\n");
                     } else {
                         snprintf(response, BUFFER_SIZE, "RLI NOK\n");
                     }
+                } else {
+                    register_user(UID, password);
+                    snprintf(response, BUFFER_SIZE, "RLI REG\n");
                 }
             }
         } else {
@@ -280,20 +169,14 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
     else if (strcmp(command, "LOU") == 0) {
         char password[9];
         if (sscanf(buffer, "LOU %6s %8s", UID, password) == 2) {
-            // Valida UID e password usando utils
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, BUFFER_SIZE, "RLO ERR\n");
             } else {
-                int result = logout_user(UID, password);
-                if (result == 0) {
-                    snprintf(response, BUFFER_SIZE, "RLO OK\n");
-                } else if (result == -2) {
-                    snprintf(response, BUFFER_SIZE, "RLO WRP\n");
-                } else if (result == -3) {
-                    snprintf(response, BUFFER_SIZE, "RLO UNR\n");
-                } else {
-                    snprintf(response, BUFFER_SIZE, "RLO NOK\n");
-                }
+                int res = logout_user(UID, password);
+                if (res == 0) snprintf(response, BUFFER_SIZE, "RLO OK\n");
+                else if (res == -2) snprintf(response, BUFFER_SIZE, "RLO WRP\n");
+                else if (res == -3) snprintf(response, BUFFER_SIZE, "RLO NOK\n");
+                else snprintf(response, BUFFER_SIZE, "RLO UNR\n");
             }
         } else {
             snprintf(response, BUFFER_SIZE, "RLO ERR\n");
@@ -302,46 +185,76 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
     else if (strcmp(command, "LUR") == 0) {
         char password[9];
         if (sscanf(buffer, "LUR %6s %8s", UID, password) == 2) {
-            // Valida UID e password usando utils
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, BUFFER_SIZE, "RUR ERR\n");
             } else {
-                int result = unregister_user(UID, password);
-                if (result == 0) {
-                    snprintf(response, BUFFER_SIZE, "RUR OK\n");
-                } else if (result == -2) {
-                    snprintf(response, BUFFER_SIZE, "RUR WRP\n");
-                } else {
-                    snprintf(response, BUFFER_SIZE, "RUR NOK\n");
-                }
+                int res = unregister_user(UID, password);
+                if (res == 0) snprintf(response, BUFFER_SIZE, "RUR OK\n");
+                else if (res == -2) snprintf(response, BUFFER_SIZE, "RUR WRP\n");
+                else if (res == -3) snprintf(response, BUFFER_SIZE, "RUR NOK\n");
+                else snprintf(response, BUFFER_SIZE, "RUR UNR\n");
             }
         } else {
             snprintf(response, BUFFER_SIZE, "RUR ERR\n");
         }
     }
     else if (strcmp(command, "LME") == 0) {
-        if (sscanf(buffer, "LME %6s", UID) == 1) {
-            if (!validate_uid(UID)) {
+        char password[9];
+        if (sscanf(buffer, "LME %6s %8s", UID, password) == 2) {
+            if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, BUFFER_SIZE, "RME ERR\n");
             } else {
-                // TODO: Implementar resposta completa
-                snprintf(response, BUFFER_SIZE, "RME OK\n");
+                User *u = find_user(UID);
+                if (!u) snprintf(response, BUFFER_SIZE, "RME UNR\n"); // Não existe? (Enunciado não especifica UNR aqui, mas NOK)
+                else if (strcmp(u->password, password) != 0) snprintf(response, BUFFER_SIZE, "RME WRP\n");
+                else if (!u->loggedIn) snprintf(response, BUFFER_SIZE, "RME NLG\n");
+                else {
+                    char list[BUFFER_SIZE] = "";
+                    int count = 0;
+                    Event *curr = event_list;
+                    while (curr) {
+                        if (strcmp(curr->owner_UID, UID) == 0) {
+                            char item[32];
+                            snprintf(item, sizeof(item), " %s %d", curr->EID, curr->status);
+                            strncat(list, item, sizeof(list) - strlen(list) - 1);
+                            count++;
+                        }
+                        curr = curr->next;
+                    }
+                    if (count == 0) snprintf(response, BUFFER_SIZE, "RME NOK\n");
+                    else snprintf(response, BUFFER_SIZE, "RME OK%s\n", list);
+                }
             }
         } else {
             snprintf(response, BUFFER_SIZE, "RME ERR\n");
         }
     }
-    else if (strcmp(command, "LEV") == 0) {
-        // TODO: Implementar resposta completa
-        snprintf(response, BUFFER_SIZE, "REV OK\n");
-    }
     else if (strcmp(command, "LMR") == 0) {
-        if (sscanf(buffer, "LMR %6s", UID) == 1) {
-            if (!validate_uid(UID)) {
+        char password[9];
+        if (sscanf(buffer, "LMR %6s %8s", UID, password) == 2) {
+            if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, BUFFER_SIZE, "RMR ERR\n");
             } else {
-                // TODO: Implementar resposta completa
-                snprintf(response, BUFFER_SIZE, "RMR OK\n");
+                User *u = find_user(UID);
+                if (!u) snprintf(response, BUFFER_SIZE, "RMR UNR\n");
+                else if (strcmp(u->password, password) != 0) snprintf(response, BUFFER_SIZE, "RMR WRP\n");
+                else if (!u->loggedIn) snprintf(response, BUFFER_SIZE, "RMR NLG\n");
+                else {
+                    char list[BUFFER_SIZE] = "";
+                    int count = 0;
+                    Reservation *curr = reservation_list;
+                    while (curr) {
+                        if (strcmp(curr->UID, UID) == 0) {
+                            char item[64];
+                            snprintf(item, sizeof(item), " %s %s %d", curr->EID, curr->reservation_date, curr->num_people);
+                            strncat(list, item, sizeof(list) - strlen(list) - 1);
+                            count++;
+                        }
+                        curr = curr->next;
+                    }
+                    if (count == 0) snprintf(response, BUFFER_SIZE, "RMR NOK\n");
+                    else snprintf(response, BUFFER_SIZE, "RMR OK%s\n", list);
+                }
             }
         } else {
             snprintf(response, BUFFER_SIZE, "RMR ERR\n");
@@ -355,11 +268,8 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n, struct sockaddr_in
            (struct sockaddr*)client_addr, addr_len);
 }
 
-// ...existing code...
+// --- Processamento TCP ---
 
-
-
-// Função para processar comandos TCP
 void process_tcp_command(int client_fd) {
     char buffer[BUFFER_SIZE];
     ssize_t n = read(client_fd, buffer, BUFFER_SIZE - 1);
@@ -381,6 +291,8 @@ void process_tcp_command(int client_fd) {
     close(client_fd);
 }
 
+// --- Main ---
+
 int main(int argc, char *argv[]) {
     int udp_fd, tcp_fd;
     struct sockaddr_in server_addr, client_addr;
@@ -388,7 +300,6 @@ int main(int argc, char *argv[]) {
     char buffer[BUFFER_SIZE];
     char *port = DEFAULT_PORT;
     
-    // Parse argumentos
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
             port = argv[++i];
@@ -397,61 +308,42 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    // Inicializa os arrays globais
-    users = malloc(INITIAL_CAPACITY * sizeof(User));
-    events = malloc(INITIAL_CAPACITY * sizeof(Event));
-    reservations = malloc(INITIAL_CAPACITY * sizeof(Reservation));
-    if (!users || !events || !reservations) {
-        fprintf(stderr, "Falha ao alocar memória inicial\n");
-        return 1;
-    }
-    
-    // Cria socket UDP
     if ((udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("Erro ao criar socket UDP");
-        return 1;
+        perror("Socket UDP failed");
+        exit(EXIT_FAILURE);
     }
     
-    // Cria socket TCP
     if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Erro ao criar socket TCP");
+        perror("Socket TCP failed");
         close(udp_fd);
-        return 1;
+        exit(EXIT_FAILURE);
     }
     
-    // Configura endereço do servidor
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(atoi(port));
     
-    // Bind UDP
     if (bind(udp_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Erro no bind UDP");
-        close(udp_fd);
-        close(tcp_fd);
-        return 1;
+        perror("Bind UDP failed");
+        close(udp_fd); close(tcp_fd);
+        exit(EXIT_FAILURE);
     }
     
-    // Bind TCP
     if (bind(tcp_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Erro no bind TCP");
-        close(udp_fd);
-        close(tcp_fd);
-        return 1;
+        perror("Bind TCP failed");
+        close(udp_fd); close(tcp_fd);
+        exit(EXIT_FAILURE);
     }
     
-    // Listen TCP
     if (listen(tcp_fd, 5) < 0) {
-        perror("Erro no listen TCP");
-        close(udp_fd);
-        close(tcp_fd);
-        return 1;
+        perror("Listen TCP failed");
+        close(udp_fd); close(tcp_fd);
+        exit(EXIT_FAILURE);
     }
     
-    printf("Servidor iniciado na porta %s\n", port);
+    printf("Servidor iniciado na porta %s%s\n", port, verbose_mode ? " (verbose)" : "");
     
-    // Loop principal com select()
     fd_set read_fds;
     int max_fd = (udp_fd > tcp_fd) ? udp_fd : tcp_fd;
     
@@ -460,37 +352,30 @@ int main(int argc, char *argv[]) {
         FD_SET(udp_fd, &read_fds);
         FD_SET(tcp_fd, &read_fds);
         
-        int activity = select(max_fd + 1, &read_fds, NULL, NULL, NULL);
-        
-        if (activity < 0 && errno != EINTR) {
-            perror("Erro no select");
+        if (select(max_fd + 1, &read_fds, NULL, NULL, NULL) < 0 && errno != EINTR) {
+            perror("Select error");
             break;
         }
         
-        // Verifica UDP
         if (FD_ISSET(udp_fd, &read_fds)) {
             ssize_t n = recvfrom(udp_fd, buffer, BUFFER_SIZE - 1, 0,
                                 (struct sockaddr*)&client_addr, &addr_len);
-            if (n > 0) {
-                process_udp_command(udp_fd, buffer, n, &client_addr, addr_len);
-            }
+            if (n > 0) process_udp_command(udp_fd, buffer, n, &client_addr, addr_len);
         }
         
-        // Verifica TCP
         if (FD_ISSET(tcp_fd, &read_fds)) {
             int client_fd = accept(tcp_fd, (struct sockaddr*)&client_addr, &addr_len);
-            if (client_fd >= 0) {
-                process_tcp_command(client_fd);
-            }
+            if (client_fd >= 0) process_tcp_command(client_fd);
         }
     }
     
-    // Cleanup
     close(udp_fd);
     close(tcp_fd);
-    free(users);
-    free(events);
-    free(reservations);
+    
+    // Cleanup lists
+    while (user_list) { User *t = user_list; user_list = user_list->next; free(t); }
+    while (event_list) { Event *t = event_list; event_list = event_list->next; free(t); }
+    while (reservation_list) { Reservation *t = reservation_list; reservation_list = reservation_list->next; free(t); }
     
     return 0;
 }

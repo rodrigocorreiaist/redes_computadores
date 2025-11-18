@@ -10,30 +10,36 @@
 #define DEFAULT_PORT "58000"
 #define BUFFER_SIZE 1024
 
+// Estrutura para armazenar estado do cliente
+typedef struct {
+    char UID[7];
+    int logged_in;
+} ClientState;
+
 // Estrutura para armazenar configuração do cliente
 typedef struct {
     int udp_fd;
     int tcp_fd;
     struct sockaddr_in server_addr;
-    char UID[7];
-    int logged_in;
-} ClientState;
+    ClientState state;
+} Client;
+
 
 // Função para enviar comando UDP e receber resposta
-int send_udp_command(ClientState *state, const char *command, char *response) {
-    socklen_t addr_len = sizeof(state->server_addr);
+int send_udp_command(Client *client, const char *command, char *response) {
+    socklen_t addr_len = sizeof(client->server_addr);
     
     // Envia comando
-    ssize_t sent = sendto(state->udp_fd, command, strlen(command), 0,
-                          (struct sockaddr*)&state->server_addr, addr_len);
+    ssize_t sent = sendto(client->udp_fd, command, strlen(command), 0,
+                          (struct sockaddr*)&client->server_addr, addr_len);
     if (sent < 0) {
         perror("Erro ao enviar comando UDP");
         return -1;
     }
     
     // Recebe resposta
-    ssize_t received = recvfrom(state->udp_fd, response, BUFFER_SIZE - 1, 0,
-                                (struct sockaddr*)&state->server_addr, &addr_len);
+    ssize_t received = recvfrom(client->udp_fd, response, BUFFER_SIZE - 1, 0,
+                                (struct sockaddr*)&client->server_addr, &addr_len);
     if (received < 0) {
         perror("Erro ao receber resposta UDP");
         return -1;
@@ -44,7 +50,7 @@ int send_udp_command(ClientState *state, const char *command, char *response) {
 }
 
 // Comando: login
-void cmd_login(ClientState *state) {
+void cmd_login(Client *client) {
     char UID[10], password[20]; // Buffers maiores para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
@@ -77,29 +83,21 @@ void cmd_login(ClientState *state) {
     snprintf(command, BUFFER_SIZE, "LIN %s %s\n", UID, password);
     
     // Envia e recebe
-    if (send_udp_command(state, command, response) == 0) {
-        if (strncmp(response, "RLI OK", 6) == 0) {
-            printf("Login bem-sucedido\n");
-            strcpy(state->UID, UID);
-            state->logged_in = 1;
-        } else if (strncmp(response, "RLI REG", 7) == 0) {
-            printf("Novo utilizador registado\n");
-            strcpy(state->UID, UID);
-            state->logged_in = 1;
-        } else if (strncmp(response, "RLI NOK", 7) == 0) {
-            printf("Login falhou: credenciais incorretas\n");
-        } else {
-            printf("Erro no login: %s", response);
+    if (send_udp_command(client, command, response) == 0) {
+        show_reply(response);
+        if (strncmp(response, "RLI OK", 6) == 0 || strncmp(response, "RLI REG", 7) == 0) {
+            strcpy(client->state.UID, UID);
+            client->state.logged_in = 1;
         }
     }
 }
 
-void cmd_logout(ClientState *state) {
+void cmd_logout(Client *client) {
     char password[20]; // Buffer maior para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
-    if (!state->logged_in) {
+    if (!client->state.logged_in) {
         printf("Não está logged in\n");
         return;
     }
@@ -116,29 +114,23 @@ void cmd_logout(ClientState *state) {
         return;
     }
     
-    snprintf(command, BUFFER_SIZE, "LOU %s %s\n", state->UID, password);
+    snprintf(command, BUFFER_SIZE, "LOU %s %s\n", client->state.UID, password);
     
-    if (send_udp_command(state, command, response) == 0) {
+    if (send_udp_command(client, command, response) == 0) {
+        show_reply(response);
         if (strncmp(response, "RLO OK", 6) == 0) {
-            printf("Logout bem-sucedido\n");
-            state->logged_in = 0;
-            memset(state->UID, 0, sizeof(state->UID));
-        } else if (strncmp(response, "RLO WRP", 7) == 0) {
-            printf("Password incorreta\n");
-        } else if (strncmp(response, "RLO UNR", 7) == 0) {
-            printf("Utilizador não está logged in\n");
-        } else {
-            printf("Logout falhou: %s", response);
+            client->state.logged_in = 0;
+            memset(client->state.UID, 0, sizeof(client->state.UID));
         }
     }
 }
 
-void cmd_unregister(ClientState *state) {
+void cmd_unregister(Client *client) {
     char password[20]; // Buffer maior para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
-    if (!state->logged_in) {
+    if (!client->state.logged_in) {
         printf("Não está logged in\n");
         return;
     }
@@ -155,10 +147,14 @@ void cmd_unregister(ClientState *state) {
         return;
     }
     
-    snprintf(command, BUFFER_SIZE, "LUR %s %s\n", state->UID, password);
+    snprintf(command, BUFFER_SIZE, "LUR %s %s\n", client->state.UID, password);
     
-    if (send_udp_command(state, command, response) == 0) {
-        show_reply(response); // processa a resposta
+    if (send_udp_command(client, command, response) == 0) {
+        show_reply(response);
+        if (strncmp(response, "RUR OK", 6) == 0) {
+            client->state.logged_in = 0;
+            memset(client->state.UID, 0, sizeof(client->state.UID));
+        }
     }
 }
 
@@ -175,7 +171,7 @@ void print_help() {
 }
 
 int main(int argc, char *argv[]) {
-    ClientState state;
+    Client client;
     char *server_ip = "127.0.0.1";
     char *port = DEFAULT_PORT;
     char command[100];
@@ -190,23 +186,23 @@ int main(int argc, char *argv[]) {
     }
     
     // Inicializa estado
-    memset(&state, 0, sizeof(state));
-    state.logged_in = 0;
+    memset(&client, 0, sizeof(client));
+    client.state.logged_in = 0;
     
     // Cria socket UDP
-    if ((state.udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    if ((client.udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Erro ao criar socket UDP");
         return 1;
     }
     
     // Configura endereço do servidor
-    memset(&state.server_addr, 0, sizeof(state.server_addr));
-    state.server_addr.sin_family = AF_INET;
-    state.server_addr.sin_port = htons(atoi(port));
+    memset(&client.server_addr, 0, sizeof(client.server_addr));
+    client.server_addr.sin_family = AF_INET;
+    client.server_addr.sin_port = htons(atoi(port));
     
-    if (inet_pton(AF_INET, server_ip, &state.server_addr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, server_ip, &client.server_addr.sin_addr) <= 0) {
         perror("Endereço IP inválido");
-        close(state.udp_fd);
+        close(client.udp_fd);
         return 1;
     }
     
@@ -225,11 +221,11 @@ int main(int argc, char *argv[]) {
         while ((c = getchar()) != '\n' && c != EOF);
         
         if (strcmp(command, "login") == 0) {
-            cmd_login(&state);
+            cmd_login(&client);
         } else if (strcmp(command, "logout") == 0) {
-            cmd_logout(&state);
+            cmd_logout(&client);
         } else if (strcmp(command, "unregister") == 0) {
-            cmd_unregister(&state);
+            cmd_unregister(&client);
         } else if (strcmp(command, "help") == 0) {
             print_help();
         } else if (strcmp(command, "exit") == 0) {
@@ -240,7 +236,7 @@ int main(int argc, char *argv[]) {
     }
     
     // Cleanup
-    close(state.udp_fd);
+    close(client.udp_fd);
     printf("Cliente encerrado\n");
     
     return 0;

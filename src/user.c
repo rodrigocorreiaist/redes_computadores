@@ -132,7 +132,7 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
         return;
     }
     
-    snprintf(command, BUFFER_SIZE, "LUR %s %s\n", logged_uid, password);
+    snprintf(command, BUFFER_SIZE, "UNR %s %s\n", logged_uid, password);
     
     if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
         show_reply(response);
@@ -143,6 +143,143 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
     }
 }
 
+void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char password[20];
+    char command[BUFFER_SIZE];
+    char response[BUFFER_SIZE];
+    
+    if (!*logged_in) {
+        printf("Não está logged in\n");
+        return;
+    }
+    
+    printf("Password: ");
+    if (scanf("%19s", password) != 1) {
+        printf("Erro ao ler password\n");
+        return;
+    }
+    
+    if (!validate_password(password)) {
+        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
+        return;
+    }
+    
+    snprintf(command, BUFFER_SIZE, "LME %s %s\n", logged_uid, password);
+    
+    if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
+        show_reply(response);
+    }
+}
+
+void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char password[20];
+    char command[BUFFER_SIZE];
+    char response[BUFFER_SIZE];
+    
+    if (!*logged_in) {
+        printf("Não está logged in\n");
+        return;
+    }
+    
+    printf("Password: ");
+    if (scanf("%19s", password) != 1) {
+        printf("Erro ao ler password\n");
+        return;
+    }
+    
+    if (!validate_password(password)) {
+        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
+        return;
+    }
+    
+    snprintf(command, BUFFER_SIZE, "LMR %s %s\n", logged_uid, password);
+    
+    if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
+        show_reply(response);
+    }
+}
+
+void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char oldPassword[20], newPassword[20];
+    char command[BUFFER_SIZE];
+    char response[BUFFER_SIZE];
+    int tcp_fd;
+    
+    if (!*logged_in) {
+        printf("Não está logged in\n");
+        return;
+    }
+    
+    printf("Password atual: ");
+    if (scanf("%19s", oldPassword) != 1) {
+        printf("Erro ao ler password\n");
+        return;
+    }
+    
+    if (!validate_password(oldPassword)) {
+        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
+        return;
+    }
+    
+    printf("Nova password: ");
+    if (scanf("%19s", newPassword) != 1) {
+        printf("Erro ao ler password\n");
+        return;
+    }
+    
+    if (!validate_password(newPassword)) {
+        printf("Erro: Nova password deve ter exatamente 8 caracteres alfanuméricos\n");
+        return;
+    }
+    
+    // Create TCP socket
+    if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Erro ao criar socket TCP");
+        return;
+    }
+    
+    // Connect to server
+    if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
+        perror("Erro ao conectar ao servidor TCP");
+        close(tcp_fd);
+        return;
+    }
+    
+    // Send command: CPS UID oldPassword newPassword
+    snprintf(command, BUFFER_SIZE, "CPS %s %s %s\n", logged_uid, oldPassword, newPassword);
+    ssize_t sent = write(tcp_fd, command, strlen(command));
+    if (sent < 0) {
+        perror("Erro ao enviar comando TCP");
+        close(tcp_fd);
+        return;
+    }
+    
+    // Receive response
+    ssize_t received = read(tcp_fd, response, BUFFER_SIZE - 1);
+    if (received < 0) {
+        perror("Erro ao receber resposta TCP");
+        close(tcp_fd);
+        return;
+    }
+    
+    response[received] = '\0';
+    close(tcp_fd);
+    
+    // Display response
+    if (strncmp(response, "RCP OK", 6) == 0) {
+        printf("Password alterada com sucesso\n");
+    } else if (strncmp(response, "RCP NOK", 7) == 0) {
+        printf("ChangePass: password atual incorreta\n");
+    } else if (strncmp(response, "RCP NLG", 7) == 0) {
+        printf("ChangePass: utilizador não está autenticado\n");
+    } else if (strncmp(response, "RCP NID", 7) == 0) {
+        printf("ChangePass: utilizador não existe\n");
+    } else if (strncmp(response, "RCP ERR", 7) == 0) {
+        printf("ChangePass: erro de formato\n");
+    } else {
+        printf("ChangePass: resposta desconhecida (%s)\n", response);
+    }
+}
 
 // Menu de ajuda
 void print_help() {
@@ -150,6 +287,9 @@ void print_help() {
     printf("  login         - Fazer login / registar novo utilizador\n");
     printf("  logout        - Fazer logout\n");
     printf("  unregister    - Desregistar utilizador\n");
+    printf("  changepass    - Alterar password\n");
+    printf("  myevents      - Listar os meus eventos criados\n");
+    printf("  myreservations - Listar as minhas reservas\n");
     printf("  help          - Mostrar esta ajuda\n");
     printf("  exit          - Sair do programa\n");
     printf("\n");
@@ -210,6 +350,12 @@ int main(int argc, char *argv[]) {
             cmd_logout(udp_fd, &server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "unregister") == 0) {
             cmd_unregister(udp_fd, &server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "changepass") == 0) {
+            cmd_changepass(&server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "myevents") == 0) {
+            cmd_myevents(udp_fd, &server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "myreservations") == 0) {
+            cmd_myreservations(udp_fd, &server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "help") == 0) {
             print_help();
         } else if (strcmp(command, "exit") == 0) {

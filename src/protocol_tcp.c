@@ -8,6 +8,8 @@
 #include "protocol_tcp.h"
 #include "utils.h"
 
+#define BUFFER_SIZE 1024
+
 extern User *user_list;
 extern Event *event_list;
 extern Reservation *reservation_list;
@@ -31,7 +33,40 @@ static void handle_cls(int client_fd, const char *buffer) {
 }
 
 static void handle_lst(int client_fd, const char *buffer) {
-    send_all(client_fd, "RLS NOK\n", 8);
+    char response[BUFFER_SIZE];
+    int count = 0;
+    Event *e = event_list;
+    
+    // Count active events
+    while (e) {
+        // Assuming we list all events or just active ones? 
+        // Spec says "list of available events" or "list of all events".
+        // Let's list all for now, or maybe filter by status?
+        // "list of currently active events" (User section)
+        // "list of all events" (User section list command)
+        // Let's list all.
+        count++;
+        e = e->next;
+    }
+    
+    if (count == 0) {
+        send_all(client_fd, "RLS NOK\n", 8);
+        return;
+    }
+    
+    send_all(client_fd, "RLS OK\n", 7);
+    
+    e = event_list;
+    while (e) {
+        // Format: EID name date time
+        // We don't have time in struct, just event_date.
+        // struct Event { char EID[4]; char name[11]; char event_date[20]; ... }
+        snprintf(response, sizeof(response), "%s %s %s %d %d\n", 
+                 e->EID, e->name, e->event_date, e->attendance_size, e->seats_reserved);
+        send_all(client_fd, response, strlen(response));
+        e = e->next;
+    }
+    send_all(client_fd, "\n", 1); // End of list marker if needed, or just close connection
 }
 
 static void handle_sed(int client_fd, const char *buffer) {
@@ -110,7 +145,7 @@ void process_tcp_command(int client_fd, int verbose_mode) {
         if (getpeername(client_fd, (struct sockaddr*)&client_addr, &addr_len) == 0) {
             char client_ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-            printf("[TCP] Received %s from %s:%d (UID: %s)\n", 
+            printf("[TCP] Received %s from client %s:%d (UID: %s)\n", 
                    cmd, client_ip, ntohs(client_addr.sin_port), strlen(UID) ? UID : "N/A");
         } else {
             printf("[TCP] Received %s (UID: %s)\n", cmd, strlen(UID) ? UID : "N/A");

@@ -12,7 +12,7 @@
 #include <sys/select.h>
 #include <errno.h>
 
-#define DEFAULT_PORT "58000"
+#define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
 
 // Inicialização das listas globais

@@ -38,7 +38,7 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(client_addr->sin_addr), client_ip, INET_ADDRSTRLEN);
         sscanf(buffer + 4, "%6s", UID);
-        printf("[UDP] Received %s from %s:%d (UID: %s)\n", command, client_ip, ntohs(client_addr->sin_port), strlen(UID)?UID:"N/A");
+        printf("[UDP] Received %s from client %s:%d (UID: %s)\n", command, client_ip, ntohs(client_addr->sin_port), strlen(UID)?UID:"N/A");
     }
 
     if (strcmp(command, "LIN") == 0) {

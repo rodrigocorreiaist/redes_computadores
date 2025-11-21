@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include "utils.h"
 
-#define DEFAULT_PORT "58000"
+#define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
 
 // Função para enviar comando UDP e receber resposta
@@ -281,6 +281,69 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, int *logg
     }
 }
 
+void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char command[BUFFER_SIZE];
+    char buf[BUFFER_SIZE];
+    int tcp_fd;
+    ssize_t n;
+    
+    // Create TCP socket
+    if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Erro ao criar socket TCP");
+        return;
+    }
+    
+    // Connect to server
+    if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
+        perror("Erro ao conectar ao servidor TCP");
+        close(tcp_fd);
+        return;
+    }
+    
+    // Send command: LST [UID]\n
+    if (*logged_in) {
+        snprintf(command, BUFFER_SIZE, "LST %s\n", logged_uid);
+    } else {
+        snprintf(command, BUFFER_SIZE, "LST\n");
+    }
+
+    ssize_t sent = write(tcp_fd, command, strlen(command));
+    if (sent < 0) {
+        perror("Erro ao enviar comando TCP");
+        close(tcp_fd);
+        return;
+    }
+    
+    // Receive response
+    n = read(tcp_fd, buf, sizeof(buf) - 1);
+    if (n < 0) {
+        perror("Erro ao receber resposta TCP");
+        close(tcp_fd);
+        return;
+    }
+    
+    if (n == 0) {
+        close(tcp_fd);
+        return;
+    }
+    
+    buf[n] = '\0';
+    
+    if (strncmp(buf, "RLS NOK", 7) == 0) {
+        printf("List: nenhum evento disponível\n");
+    } else {
+        // Print the first chunk
+        printf("%s", buf);
+        // Read the rest
+        while ((n = read(tcp_fd, buf, sizeof(buf) - 1)) > 0) {
+            buf[n] = '\0';
+            printf("%s", buf);
+        }
+    }
+    
+    close(tcp_fd);
+}
+
 // Menu de ajuda
 void print_help() {
     printf("\nComandos disponíveis:\n");
@@ -288,6 +351,7 @@ void print_help() {
     printf("  logout        - Fazer logout\n");
     printf("  unregister    - Desregistar utilizador\n");
     printf("  changepass    - Alterar password\n");
+    printf("  list          - Listar todos os eventos\n");
     printf("  myevents      - Listar os meus eventos criados\n");
     printf("  myreservations - Listar as minhas reservas\n");
     printf("  help          - Mostrar esta ajuda\n");
@@ -352,6 +416,8 @@ int main(int argc, char *argv[]) {
             cmd_unregister(udp_fd, &server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "changepass") == 0) {
             cmd_changepass(&server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "list") == 0) {
+            cmd_list(&server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "myevents") == 0) {
             cmd_myevents(udp_fd, &server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "myreservations") == 0) {

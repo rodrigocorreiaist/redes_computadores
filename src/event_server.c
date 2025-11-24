@@ -106,7 +106,7 @@ int unregister_user(char *UID, char *password) {
 
 // --- Gestão de Eventos e Reservas (Skeleton para TCP/UDP) ---
 
-int create_event(char *UID, char *name, char *event_date, int attendance_size) {
+int create_event(char *UID, char *name, char *date, char *time, int attendance_size, const char *filename, size_t filesize) {
     if (total_events >= 999) return -1;
 
     Event *new_event = (Event *)malloc(sizeof(Event));
@@ -115,14 +115,73 @@ int create_event(char *UID, char *name, char *event_date, int attendance_size) {
     total_events++;
     snprintf(new_event->EID, sizeof(new_event->EID), "%03d", total_events);
     strcpy(new_event->name, name);
-    strcpy(new_event->event_date, event_date);
+    strcpy(new_event->date, date);
+    strcpy(new_event->time, time);
     new_event->attendance_size = attendance_size;
     new_event->seats_reserved = 0;
     strcpy(new_event->owner_UID, UID);
     new_event->status = 0; // 0: ativo
+    strncpy(new_event->filename, filename, sizeof(new_event->filename) - 1);
+    new_event->filename[sizeof(new_event->filename) - 1] = '\0';
+    new_event->filesize = filesize;
 
     new_event->next = event_list;
     event_list = new_event;
+    return total_events; // Return EID as int
+}
+
+char* get_event_filepath(const char *EID) {
+    static char path[300];
+    snprintf(path, sizeof(path), "EVENTS/%s_%s", EID, "file.bin");
+    return path;
+}
+
+int close_event(char *UID, char *EID) {
+    Event *e = find_event(EID);
+    if (!e) return -1; // Event doesn't exist
+    if (strcmp(e->owner_UID, UID) != 0) return -2; // Not owner
+    if (e->status != 0) return -3; // Already closed/sold-out/ended
+    
+    e->status = 1; // 1: fechado
+    return 0;
+}
+
+int reserve_seats(char *UID, char *EID, int num_people) {
+    Event *e = find_event(EID);
+    if (!e) return -1; // Event doesn't exist (NOK)
+    if (e->status == 1) return -2; // Event closed (CLS)
+    if (e->status == 2 || e->status == 3) return -3; // Sold out or ended (FUL)
+    if (e->seats_reserved + num_people > e->attendance_size) return -4; // Not enough seats (FUL)
+    
+    // Check if user already has reservation for this event
+    Reservation *r = reservation_list;
+    while (r) {
+        if (strcmp(r->UID, UID) == 0 && strcmp(r->EID, EID) == 0) {
+            // Update existing reservation
+            r->num_people += num_people;
+            e->seats_reserved += num_people;
+            if (e->seats_reserved >= e->attendance_size) e->status = 2; // Mark as sold out
+            return 0;
+        }
+        r = r->next;
+    }
+    
+    // Create new reservation
+    Reservation *new_res = (Reservation *)malloc(sizeof(Reservation));
+    if (!new_res) return -5; // Memory error
+    
+    strcpy(new_res->UID, UID);
+    strcpy(new_res->EID, EID);
+    new_res->num_people = num_people;
+    // TODO: Add current date to reservation_date
+    strcpy(new_res->reservation_date, "24-11-2025");
+    
+    new_res->next = reservation_list;
+    reservation_list = new_res;
+    
+    e->seats_reserved += num_people;
+    if (e->seats_reserved >= e->attendance_size) e->status = 2; // Mark as sold out
+    
     return 0;
 }
 

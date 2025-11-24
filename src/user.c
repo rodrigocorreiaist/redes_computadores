@@ -344,6 +344,330 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in)
     close(tcp_fd);
 }
 
+void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char password[20], name[12], date[12], time[7], filename[256];
+    int capacity;
+    size_t filesize;
+    int tcp_fd;
+    
+    if (!*logged_in) {
+        printf("Não está logged in\n");
+        return;
+    }
+    
+    printf("Password: ");
+    if (scanf("%19s", password) != 1) return;
+    if (!validate_password(password)) {
+        printf("Erro: Password deve ter 8 caracteres alfanuméricos\n");
+        return;
+    }
+    
+    printf("Nome do evento (até 10 caracteres alfanuméricos): ");
+    if (scanf("%11s", name) != 1) return;
+    if (!validate_event_name(name)) {
+        printf("Erro: Nome inválido\n");
+        return;
+    }
+    
+    printf("Data (dd-mm-yyyy): ");
+    if (scanf("%11s", date) != 1) return;
+    if (!validate_date(date)) {
+        printf("Erro: Data inválida\n");
+        return;
+    }
+    
+    printf("Hora (hh:mm): ");
+    if (scanf("%6s", time) != 1) return;
+    if (!validate_time(time)) {
+        printf("Erro: Hora inválida\n");
+        return;
+    }
+    
+    printf("Capacidade (10-999): ");
+    if (scanf("%d", &capacity) != 1 || capacity < 10 || capacity > 999) {
+        printf("Erro: Capacidade inválida\n");
+        return;
+    }
+    
+    printf("Ficheiro: ");
+    if (scanf("%255s", filename) != 1) return;
+    
+    // Open and read file
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) {
+        printf("Erro: Não foi possível abrir ficheiro\n");
+        return;
+    }
+    
+    fseek(fp, 0, SEEK_END);
+    filesize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    if (filesize == 0 || filesize > 10485760) {
+        printf("Erro: Tamanho de ficheiro inválido\n");
+        fclose(fp);
+        return;
+    }
+    
+    char *file_data = (char *)malloc(filesize);
+    if (!file_data) {
+        printf("Erro: Memória insuficiente\n");
+        fclose(fp);
+        return;
+    }
+    
+    if (fread(file_data, 1, filesize, fp) != filesize) {
+        printf("Erro: Falha ao ler ficheiro\n");
+        free(file_data);
+        fclose(fp);
+        return;
+    }
+    fclose(fp);
+    
+    // Extract just filename (no path)
+    char *basename = strrchr(filename, '/');
+    basename = basename ? basename + 1 : filename;
+    
+    // Create TCP connection
+    if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Erro ao criar socket TCP");
+        free(file_data);
+        return;
+    }
+    
+    if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
+        perror("Erro ao conectar ao servidor TCP");
+        close(tcp_fd);
+        free(file_data);
+        return;
+    }
+    
+    // Send command
+    char command[512];
+    snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s %zu\n",
+             logged_uid, password, name, date, time, capacity, basename, filesize);
+    
+    if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
+        printf("Erro ao enviar comando\n");
+        close(tcp_fd);
+        free(file_data);
+        return;
+    }
+    
+    // Send file data
+    if (send_all_tcp(tcp_fd, file_data, filesize) < 0) {
+        printf("Erro ao enviar ficheiro\n");
+        close(tcp_fd);
+        free(file_data);
+        return;
+    }
+    free(file_data);
+    
+    // Receive response
+    char response[128];
+    int n = recv_line_tcp(tcp_fd, response, sizeof(response));
+    close(tcp_fd);
+    
+    if (n > 0) {
+        if (strncmp(response, "RCE OK", 6) == 0) {
+            char eid[4];
+            sscanf(response, "RCE OK %3s", eid);
+            printf("Evento criado com sucesso. EID: %s\n", eid);
+        } else if (strncmp(response, "RCE NOK", 7) == 0) {
+            printf("Create: falha ao criar evento\n");
+        } else if (strncmp(response, "RCE NLG", 7) == 0) {
+            printf("Create: não autenticado\n");
+        } else {
+            printf("Create: erro (%s)\n", response);
+        }
+    }
+}
+
+void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char password[20], EID[5];
+    char command[128], response[128];
+    int tcp_fd;
+    
+    if (!*logged_in) {
+        printf("Não está logged in\n");
+        return;
+    }
+    
+    printf("Password: ");
+    if (scanf("%19s", password) != 1) return;
+    if (!validate_password(password)) {
+        printf("Erro: Password inválida\n");
+        return;
+    }
+    
+    printf("Event ID (3 dígitos): ");
+    if (scanf("%4s", EID) != 1) return;
+    if (!validate_eid(EID)) {
+        printf("Erro: EID inválido\n");
+        return;
+    }
+    
+    // Create TCP connection
+    if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Erro ao criar socket TCP");
+        return;
+    }
+    
+    if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
+        perror("Erro ao conectar");
+        close(tcp_fd);
+        return;
+    }
+    
+    snprintf(command, sizeof(command), "CLS %s %s %s\n", logged_uid, password, EID);
+    send_all_tcp(tcp_fd, command, strlen(command));
+    
+    int n = recv_line_tcp(tcp_fd, response, sizeof(response));
+    close(tcp_fd);
+    
+    if (n > 0) {
+        if (strncmp(response, "RCL OK", 6) == 0) {
+            printf("Evento fechado com sucesso\n");
+        } else if (strncmp(response, "RCL EID", 7) == 0) {
+            printf("Close: evento não existe\n");
+        } else if (strncmp(response, "RCL USR", 7) == 0) {
+            printf("Close: não é o dono do evento\n");
+        } else if (strncmp(response, "RCL FUL", 7) == 0) {
+            printf("Close: evento esgotado\n");
+        } else {
+            printf("Close: %s\n", response);
+        }
+    }
+}
+
+void cmd_show(struct sockaddr_in *server_addr) {
+    char EID[5], command[64];
+    int tcp_fd;
+    
+    printf("Event ID (3 dígitos): ");
+    if (scanf("%4s", EID) != 1) return;
+    if (!validate_eid(EID)) {
+        printf("Erro: EID inválido\n");
+        return;
+    }
+    
+    if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Erro ao criar socket TCP");
+        return;
+    }
+    
+    if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
+        perror("Erro ao conectar");
+        close(tcp_fd);
+        return;
+    }
+    
+    snprintf(command, sizeof(command), "SED %s\n", EID);
+    send_all_tcp(tcp_fd, command, strlen(command));
+    
+    char response[512];
+    int n = recv_line_tcp(tcp_fd, response, sizeof(response));
+    
+    if (n > 0 && strncmp(response, "RSE OK", 6) == 0) {
+        char name[11], date[11], time[6], filename[256];
+        int capacity, reserved;
+        size_t filesize;
+        
+        sscanf(response, "RSE OK %10s %10s %5s %d %d %255s %zu",
+               name, date, time, &capacity, &reserved, filename, &filesize);
+        
+        printf("Evento: %s\n", name);
+        printf("Data: %s %s\n", date, time);
+        printf("Capacidade: %d\n", capacity);
+        printf("Reservados: %d\n", reserved);
+        printf("Ficheiro: %s (%zu bytes)\n", filename, filesize);
+        
+        // Receive file data
+        char *file_data = (char *)malloc(filesize);
+        if (file_data && recv_all_tcp(tcp_fd, file_data, filesize) == 0) {
+            // Save to local file
+            char local_filename[300];
+            snprintf(local_filename, sizeof(local_filename), "event_%s_%s", EID, filename);
+            FILE *fp = fopen(local_filename, "wb");
+            if (fp) {
+                fwrite(file_data, 1, filesize, fp);
+                fclose(fp);
+                printf("Ficheiro guardado como: %s\n", local_filename);
+            }
+        }
+        if (file_data) free(file_data);
+    } else if (n > 0 && strncmp(response, "RSE NOK", 7) == 0) {
+        printf("Show: evento não encontrado\n");
+    } else {
+        printf("Show: erro ao receber resposta\n");
+    }
+    
+    close(tcp_fd);
+}
+
+void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+    char password[20], EID[5];
+    int seats;
+    char command[128], response[128];
+    int tcp_fd;
+    
+    if (!*logged_in) {
+        printf("Não está logged in\n");
+        return;
+    }
+    
+    printf("Password: ");
+    if (scanf("%19s", password) != 1) return;
+    if (!validate_password(password)) {
+        printf("Erro: Password inválida\n");
+        return;
+    }
+    
+    printf("Event ID: ");
+    if (scanf("%4s", EID) != 1) return;
+    if (!validate_eid(EID)) {
+        printf("Erro: EID inválido\n");
+        return;
+    }
+    
+    printf("Número de lugares: ");
+    if (scanf("%d", &seats) != 1 || seats <= 0) {
+        printf("Erro: Número inválido\n");
+        return;
+    }
+    
+    if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Erro ao criar socket TCP");
+        return;
+    }
+    
+    if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
+        perror("Erro ao conectar");
+        close(tcp_fd);
+        return;
+    }
+    
+    snprintf(command, sizeof(command), "RID %s %s %s %d\n", logged_uid, password, EID, seats);
+    send_all_tcp(tcp_fd, command, strlen(command));
+    
+    int n = recv_line_tcp(tcp_fd, response, sizeof(response));
+    close(tcp_fd);
+    
+    if (n > 0) {
+        if (strncmp(response, "RRI ACC", 7) == 0) {
+            printf("Reserva aceite\n");
+        } else if (strncmp(response, "RRI CLS", 7) == 0) {
+            printf("Reserve: evento fechado\n");
+        } else if (strncmp(response, "RRI FUL", 7) == 0) {
+            printf("Reserve: evento esgotado ou não há lugares suficientes\n");
+        } else if (strncmp(response, "RRI NOK", 7) == 0) {
+            printf("Reserve: evento não existe ou falha na reserva\n");
+        } else {
+            printf("Reserve: %s\n", response);
+        }
+    }
+}
+
 // Menu de ajuda
 void print_help() {
     printf("\nComandos disponíveis:\n");
@@ -351,9 +675,13 @@ void print_help() {
     printf("  logout        - Fazer logout\n");
     printf("  unregister    - Desregistar utilizador\n");
     printf("  changepass    - Alterar password\n");
-    printf("  list          - Listar todos os eventos\n");
-    printf("  myevents      - Listar os meus eventos criados\n");
-    printf("  myreservations - Listar as minhas reservas\n");
+    printf("  create        - Criar novo evento (TCP)\n");
+    printf("  close         - Fechar evento (TCP)\n");
+    printf("  list          - Listar todos os eventos (TCP)\n");
+    printf("  show          - Mostrar detalhes de evento (TCP)\n");
+    printf("  reserve       - Reservar lugares (TCP)\n");
+    printf("  myevents      - Listar os meus eventos criados (UDP)\n");
+    printf("  myreservations - Listar as minhas reservas (UDP)\n");
     printf("  help          - Mostrar esta ajuda\n");
     printf("  exit          - Sair do programa\n");
     printf("\n");
@@ -416,8 +744,16 @@ int main(int argc, char *argv[]) {
             cmd_unregister(udp_fd, &server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "changepass") == 0) {
             cmd_changepass(&server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "create") == 0) {
+            cmd_create(&server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "close") == 0) {
+            cmd_close(&server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "list") == 0) {
             cmd_list(&server_addr, logged_uid, &logged_in);
+        } else if (strcmp(command, "show") == 0) {
+            cmd_show(&server_addr);
+        } else if (strcmp(command, "reserve") == 0) {
+            cmd_reserve(&server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "myevents") == 0) {
             cmd_myevents(udp_fd, &server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "myreservations") == 0) {

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <errno.h>
 #include "utils.h"
 
 #ifndef BUFFER_SIZE
@@ -20,6 +22,88 @@ int validate_password(const char *password) {
     for (int i = 0; i < 8; i++)
         if (!isalnum((unsigned char)password[i])) return 0;
     return 1;
+}
+
+int validate_event_name(const char *name) {
+    size_t len = strlen(name);
+    if (len == 0 || len > 10) return 0;
+    for (size_t i = 0; i < len; i++)
+        if (!isalnum((unsigned char)name[i])) return 0;
+    return 1;
+}
+
+int validate_date(const char *date) {
+    // Format: dd-mm-yyyy
+    if (strlen(date) != 10) return 0;
+    if (date[2] != '-' || date[5] != '-') return 0;
+    for (int i = 0; i < 10; i++) {
+        if (i == 2 || i == 5) continue;
+        if (!isdigit((unsigned char)date[i])) return 0;
+    }
+    return 1;
+}
+
+int validate_time(const char *time) {
+    // Format: hh:mm
+    if (strlen(time) != 5) return 0;
+    if (time[2] != ':') return 0;
+    for (int i = 0; i < 5; i++) {
+        if (i == 2) continue;
+        if (!isdigit((unsigned char)time[i])) return 0;
+    }
+    return 1;
+}
+
+int validate_eid(const char *eid) {
+    if (strlen(eid) != 3) return 0;
+    for (int i = 0; i < 3; i++)
+        if (!isdigit((unsigned char)eid[i])) return 0;
+    return 1;
+}
+
+// TCP I/O robustas - loops até byte count completo
+int send_all_tcp(int fd, const void *buf, size_t len) {
+    const char *ptr = (const char *)buf;
+    while (len > 0) {
+        ssize_t n = write(fd, ptr, len);
+        if (n <= 0) {
+            if (n < 0 && errno == EINTR) continue;
+            return -1;
+        }
+        ptr += n;
+        len -= n;
+    }
+    return 0;
+}
+
+int recv_all_tcp(int fd, void *buf, size_t len) {
+    char *ptr = (char *)buf;
+    while (len > 0) {
+        ssize_t n = read(fd, ptr, len);
+        if (n <= 0) {
+            if (n < 0 && errno == EINTR) continue;
+            return -1;
+        }
+        ptr += n;
+        len -= n;
+    }
+    return 0;
+}
+
+int recv_line_tcp(int fd, char *buf, size_t maxlen) {
+    size_t i = 0;
+    while (i < maxlen - 1) {
+        char c;
+        ssize_t n = read(fd, &c, 1);
+        if (n <= 0) {
+            if (n < 0 && errno == EINTR) continue;
+            return -1;
+        }
+        buf[i++] = c;
+        if (c == '\n') break;
+    }
+    buf[i] = '\0';
+    return (int)i;
 }
 
 static int has_token(const char *reply, const char *token) {

@@ -14,6 +14,7 @@
 
 #define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
+#define MAX_CLIENTS 30
 
 // Inicialização das listas globais
 User *user_list = NULL;
@@ -245,27 +246,69 @@ int main(int argc, char *argv[]) {
     printf("Servidor iniciado na porta %s%s\n", port, verbose_mode ? " (verbose)" : "");
     
     fd_set read_fds;
-    int max_fd = (udp_fd > tcp_fd) ? udp_fd : tcp_fd;
+    int max_fd;
+    int client_socket[MAX_CLIENTS];
+    for (int i = 0; i < MAX_CLIENTS; i++) client_socket[i] = 0;
     
     while (1) {
         FD_ZERO(&read_fds);
         FD_SET(udp_fd, &read_fds);
         FD_SET(tcp_fd, &read_fds);
         
+        max_fd = (udp_fd > tcp_fd) ? udp_fd : tcp_fd;
+        
+        // Add child sockets to set
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            int sd = client_socket[i];
+            if (sd > 0) FD_SET(sd, &read_fds);
+            if (sd > max_fd) max_fd = sd;
+        }
+        
         if (select(max_fd + 1, &read_fds, NULL, NULL, NULL) < 0 && errno != EINTR) {
             perror("Select error");
             break;
         }
         
+        // Handle UDP
         if (FD_ISSET(udp_fd, &read_fds)) {
             ssize_t n = recvfrom(udp_fd, buffer, BUFFER_SIZE - 1, 0,
                                 (struct sockaddr*)&client_addr, &addr_len);
             if (n > 0) process_udp_command(udp_fd, buffer, n, &client_addr, addr_len, verbose_mode);
         }
         
+        // Handle New TCP Connections
         if (FD_ISSET(tcp_fd, &read_fds)) {
-            int client_fd = accept(tcp_fd, (struct sockaddr*)&client_addr, &addr_len);
-            if (client_fd >= 0) process_tcp_command(client_fd, verbose_mode);
+            int new_socket = accept(tcp_fd, (struct sockaddr*)&client_addr, &addr_len);
+            if (new_socket >= 0) {
+                if (verbose_mode) printf("New connection accepted\n");
+                
+                // Add to array
+                int added = 0;
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (client_socket[i] == 0) {
+                        client_socket[i] = new_socket;
+                        added = 1;
+                        break;
+                    }
+                }
+                
+                if (!added) {
+                    if (verbose_mode) printf("Too many clients, rejecting\n");
+                    close(new_socket);
+                }
+            }
+        }
+        
+        // Handle IO on TCP Clients
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            int sd = client_socket[i];
+            if (sd > 0 && FD_ISSET(sd, &read_fds)) {
+                // Process command (blocking for now, but allows other clients to connect first)
+                process_tcp_command(sd, verbose_mode);
+                
+                // Socket is closed inside process_tcp_command, so we just clear the slot
+                client_socket[i] = 0;
+            }
         }
     }
     

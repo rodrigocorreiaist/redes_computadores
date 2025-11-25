@@ -35,7 +35,7 @@ int send_udp_command(int udp_fd, struct sockaddr_in *server_addr, const char *co
 }
 
 // Comando: login
-void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
     char UID[10], password[20]; // Buffers maiores para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
@@ -72,13 +72,13 @@ void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, in
         show_reply(response);
         if (strncmp(response, "RLI OK", 6) == 0 || strncmp(response, "RLI REG", 7) == 0) {
             strcpy(logged_uid, UID);
+            strcpy(logged_pass, password);
             *logged_in = 1;
         }
     }
 }
 
-void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
-    char password[20]; // Buffer maior para detectar erros
+void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -87,30 +87,19 @@ void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, i
         return;
     }
     
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) {
-        printf("Erro ao ler password\n");
-        return;
-    }
-    
-    // Valida password
-    if (!validate_password(password)) {
-        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
-        return;
-    }
-    
-    snprintf(command, BUFFER_SIZE, "LOU %s %s\n", logged_uid, password);
+    snprintf(command, BUFFER_SIZE, "LOU %s %s\n", logged_uid, logged_pass);
     
     if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
         show_reply(response);
         if (strncmp(response, "RLO OK", 6) == 0) {
             *logged_in = 0;
             memset(logged_uid, 0, 7);
+            memset(logged_pass, 0, 20);
         }
     }
 }
 
-void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
     char password[20]; // Buffer maior para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
@@ -139,12 +128,12 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
         if (strncmp(response, "RUR OK", 6) == 0) {
             *logged_in = 0;
             memset(logged_uid, 0, 7);
+            memset(logged_pass, 0, 20);
         }
     }
 }
 
-void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
-    char password[20];
+void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -153,26 +142,14 @@ void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid,
         return;
     }
     
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) {
-        printf("Erro ao ler password\n");
-        return;
-    }
-    
-    if (!validate_password(password)) {
-        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
-        return;
-    }
-    
-    snprintf(command, BUFFER_SIZE, "LME %s %s\n", logged_uid, password);
+    snprintf(command, BUFFER_SIZE, "LME %s %s\n", logged_uid, logged_pass);
     
     if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
         show_reply(response);
     }
 }
 
-void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
-    char password[20];
+void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -181,25 +158,14 @@ void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logge
         return;
     }
     
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) {
-        printf("Erro ao ler password\n");
-        return;
-    }
-    
-    if (!validate_password(password)) {
-        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
-        return;
-    }
-    
-    snprintf(command, BUFFER_SIZE, "LMR %s %s\n", logged_uid, password);
+    snprintf(command, BUFFER_SIZE, "LMR %s %s\n", logged_uid, logged_pass);
     
     if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
         show_reply(response);
     }
 }
 
-void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
     char oldPassword[20], newPassword[20];
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
@@ -268,6 +234,7 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, int *logg
     // Display response
     if (strncmp(response, "RCP OK", 6) == 0) {
         printf("Password alterada com sucesso\n");
+        strcpy(logged_pass, newPassword);
     } else if (strncmp(response, "RCP NOK", 7) == 0) {
         printf("ChangePass: password atual incorreta\n");
     } else if (strncmp(response, "RCP NLG", 7) == 0) {
@@ -344,21 +311,14 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in)
     close(tcp_fd);
 }
 
-void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
-    char password[20], name[12], date[12], time[7], filename[256];
+void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+    char name[12], date[12], time[7], filename[256];
     int capacity;
     size_t filesize;
     int tcp_fd;
     
     if (!*logged_in) {
         printf("Não está logged in\n");
-        return;
-    }
-    
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) return;
-    if (!validate_password(password)) {
-        printf("Erro: Password deve ter 8 caracteres alfanuméricos\n");
         return;
     }
     
@@ -445,7 +405,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, int *logged_i
     // Send command
     char command[512];
     snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s %zu\n",
-             logged_uid, password, name, date, time, capacity, basename, filesize);
+             logged_uid, logged_pass, name, date, time, capacity, basename, filesize);
     
     if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
         printf("Erro ao enviar comando\n");
@@ -483,20 +443,13 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, int *logged_i
     }
 }
 
-void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
-    char password[20], EID[5];
+void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+    char EID[5];
     char command[128], response[128];
     int tcp_fd;
     
     if (!*logged_in) {
         printf("Não está logged in\n");
-        return;
-    }
-    
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) return;
-    if (!validate_password(password)) {
-        printf("Erro: Password inválida\n");
         return;
     }
     
@@ -519,7 +472,7 @@ void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in
         return;
     }
     
-    snprintf(command, sizeof(command), "CLS %s %s %s\n", logged_uid, password, EID);
+    snprintf(command, sizeof(command), "CLS %s %s %s\n", logged_uid, logged_pass, EID);
     send_all_tcp(tcp_fd, command, strlen(command));
     
     int n = recv_line_tcp(tcp_fd, response, sizeof(response));
@@ -570,17 +523,25 @@ void cmd_show(struct sockaddr_in *server_addr) {
     
     if (n > 0 && strncmp(response, "RSE OK", 6) == 0) {
         char name[11], date[11], time[6], filename[256];
-        int capacity, reserved;
+        int capacity, reserved, status;
         size_t filesize;
         
-        sscanf(response, "RSE OK %10s %10s %5s %d %d %255s %zu",
-               name, date, time, &capacity, &reserved, filename, &filesize);
+        sscanf(response, "RSE OK %10s %10s %5s %d %d %255s %zu %d",
+               name, date, time, &capacity, &reserved, filename, &filesize, &status);
         
         printf("Evento: %s\n", name);
         printf("Data: %s %s\n", date, time);
         printf("Capacidade: %d\n", capacity);
         printf("Reservados: %d\n", reserved);
         printf("Ficheiro: %s (%zu bytes)\n", filename, filesize);
+        
+        if (status == 1) {
+            printf("Estado: Fechado pelo dono\n");
+        } else if (reserved >= capacity) {
+            printf("Estado: Esgotado\n");
+        } else {
+            printf("Estado: Aberto\n");
+        }
         
         // Receive file data
         char *file_data = (char *)malloc(filesize);
@@ -593,6 +554,11 @@ void cmd_show(struct sockaddr_in *server_addr) {
                 fwrite(file_data, 1, filesize, fp);
                 fclose(fp);
                 printf("Ficheiro guardado como: %s\n", local_filename);
+                
+                char cwd[1024];
+                if (getcwd(cwd, sizeof(cwd)) != NULL) {
+                    printf("Diretoria: %s\n", cwd);
+                }
             }
         }
         if (file_data) free(file_data);
@@ -605,21 +571,14 @@ void cmd_show(struct sockaddr_in *server_addr) {
     close(tcp_fd);
 }
 
-void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
-    char password[20], EID[5];
+void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+    char EID[5];
     int seats;
     char command[128], response[128];
     int tcp_fd;
     
     if (!*logged_in) {
         printf("Não está logged in\n");
-        return;
-    }
-    
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) return;
-    if (!validate_password(password)) {
-        printf("Erro: Password inválida\n");
         return;
     }
     
@@ -647,7 +606,7 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, int *logged_
         return;
     }
     
-    snprintf(command, sizeof(command), "RID %s %s %s %d\n", logged_uid, password, EID, seats);
+    snprintf(command, sizeof(command), "RID %s %s %s %d\n", logged_uid, logged_pass, EID, seats);
     send_all_tcp(tcp_fd, command, strlen(command));
     
     int n = recv_line_tcp(tcp_fd, response, sizeof(response));
@@ -691,6 +650,7 @@ int main(int argc, char *argv[]) {
     int udp_fd;
     struct sockaddr_in server_addr;
     char logged_uid[7] = "";
+    char logged_pass[20] = "";
     int logged_in = 0;
     char *server_ip = "127.0.0.1";
     char *port = DEFAULT_PORT;
@@ -737,27 +697,27 @@ int main(int argc, char *argv[]) {
         while ((c = getchar()) != '\n' && c != EOF);
         
         if (strcmp(command, "login") == 0) {
-            cmd_login(udp_fd, &server_addr, logged_uid, &logged_in);
+            cmd_login(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "logout") == 0) {
-            cmd_logout(udp_fd, &server_addr, logged_uid, &logged_in);
+            cmd_logout(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "unregister") == 0) {
-            cmd_unregister(udp_fd, &server_addr, logged_uid, &logged_in);
+            cmd_unregister(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "changepass") == 0) {
-            cmd_changepass(&server_addr, logged_uid, &logged_in);
+            cmd_changepass(&server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "create") == 0) {
-            cmd_create(&server_addr, logged_uid, &logged_in);
+            cmd_create(&server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "close") == 0) {
-            cmd_close(&server_addr, logged_uid, &logged_in);
+            cmd_close(&server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "list") == 0) {
             cmd_list(&server_addr, logged_uid, &logged_in);
         } else if (strcmp(command, "show") == 0) {
             cmd_show(&server_addr);
         } else if (strcmp(command, "reserve") == 0) {
-            cmd_reserve(&server_addr, logged_uid, &logged_in);
+            cmd_reserve(&server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "myevents") == 0) {
-            cmd_myevents(udp_fd, &server_addr, logged_uid, &logged_in);
+            cmd_myevents(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "myreservations") == 0) {
-            cmd_myreservations(udp_fd, &server_addr, logged_uid, &logged_in);
+            cmd_myreservations(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "help") == 0) {
             print_help();
         } else if (strcmp(command, "exit") == 0) {

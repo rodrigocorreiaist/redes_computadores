@@ -272,9 +272,9 @@ static void handle_sed(int client_fd, const char *buffer) {
     
     // Send response header
     char response[512];
-    snprintf(response, sizeof(response), "RSE OK %s %s %s %d %d %s %zu\n",
+    snprintf(response, sizeof(response), "RSE OK %s %s %s %d %d %s %zu %d\n",
              e->name, e->date, e->time, e->attendance_size, e->seats_reserved,
-             e->filename, fsize);
+             e->filename, fsize, e->status);
     
     send_all_tcp(client_fd, response, strlen(response));
     
@@ -383,15 +383,17 @@ void process_tcp_command(int client_fd, int verbose_mode) {
     }
 
     char cmd[4] = "";
-    char UID[7] = "";
+    char param[7] = "";
     if (sscanf(buffer, "%3s", cmd) != 1) {
         send_all_tcp(client_fd, "ERR\n", 4);
         close(client_fd);
         return;
     }
     
-    // Extract UID for verbose logging (most TCP commands have UID as second parameter)
-    sscanf(buffer + 4, "%6s", UID);
+    // Extract parameter (UID or EID) for verbose logging
+    if (strlen(buffer) > 4) {
+        sscanf(buffer + 4, "%6s", param);
+    }
     
     if (verbose_mode) {
         struct sockaddr_in client_addr;
@@ -399,10 +401,20 @@ void process_tcp_command(int client_fd, int verbose_mode) {
         if (getpeername(client_fd, (struct sockaddr*)&client_addr, &addr_len) == 0) {
             char client_ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-            printf("[TCP] Received %s from client %s:%d (UID: %s)\n", 
-                   cmd, client_ip, ntohs(client_addr.sin_port), strlen(UID) ? UID : "N/A");
+            
+            if (strcmp(cmd, "SED") == 0) {
+                printf("[TCP] Received %s from client %s:%d (EID: %s)\n", 
+                       cmd, client_ip, ntohs(client_addr.sin_port), strlen(param) ? param : "N/A");
+            } else {
+                printf("[TCP] Received %s from client %s:%d (UID: %s)\n", 
+                       cmd, client_ip, ntohs(client_addr.sin_port), strlen(param) ? param : "N/A");
+            }
         } else {
-            printf("[TCP] Received %s (UID: %s)\n", cmd, strlen(UID) ? UID : "N/A");
+            if (strcmp(cmd, "SED") == 0) {
+                printf("[TCP] Received %s (EID: %s)\n", cmd, strlen(param) ? param : "N/A");
+            } else {
+                printf("[TCP] Received %s (UID: %s)\n", cmd, strlen(param) ? param : "N/A");
+            }
         }
     }
 

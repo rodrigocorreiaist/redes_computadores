@@ -15,6 +15,11 @@ static User* find_user(const char *UID) {
     return NULL;
 }
 
+static Event* find_event(const char *EID) {
+    Event *curr = event_list; while (curr) { if (strcmp(curr->EID, EID)==0) return curr; curr = curr->next; }
+    return NULL;
+}
+
 
 // Compute event state according to spec: 0 past,1 accepting,2 future sold out,3 closed
 static int compute_event_state(const Event *e) {
@@ -135,11 +140,13 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
                     char list[1024] = ""; int count=0; Reservation *r = reservation_list;
                     while (r) {
                         if (strcmp(r->UID, UID)==0) {
-                            char item[64];
-                            // date currently stored as reservation_date (no separate value/time) and num_people
-                            snprintf(item, sizeof(item), " %s %s %d", r->EID, r->reservation_date, r->num_people);
-                            strncat(list, item, sizeof(list)-strlen(list)-1);
-                            count++;
+                            Event *e = find_event(r->EID);
+                            if (e) {
+                                char item[64];
+                                snprintf(item, sizeof(item), " %s %s %s %d", r->EID, e->date, e->time, r->num_people);
+                                strncat(list, item, sizeof(list)-strlen(list)-1);
+                                count++;
+                            }
                         }
                         r = r->next;
                     }

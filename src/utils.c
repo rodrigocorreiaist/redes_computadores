@@ -40,6 +40,23 @@ int validate_date(const char *date) {
         if (i == 2 || i == 5) continue;
         if (!isdigit((unsigned char)date[i])) return 0;
     }
+    
+    int d, m, y;
+    if (sscanf(date, "%d-%d-%d", &d, &m, &y) != 3) return 0;
+    
+    if (m < 1 || m > 12) return 0;
+    if (d < 1 || d > 31) return 0;
+    
+    // Check days in month
+    int days_in_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    
+    // Leap year check
+    if ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)) {
+        days_in_month[2] = 29;
+    }
+    
+    if (d > days_in_month[m]) return 0;
+    
     return 1;
 }
 
@@ -51,6 +68,13 @@ int validate_time(const char *time) {
         if (i == 2) continue;
         if (!isdigit((unsigned char)time[i])) return 0;
     }
+    
+    int h, m;
+    if (sscanf(time, "%d:%d", &h, &m) != 2) return 0;
+    
+    if (h < 0 || h > 23) return 0;
+    if (m < 0 || m > 59) return 0;
+    
     return 1;
 }
 

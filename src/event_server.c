@@ -150,6 +150,10 @@ int reserve_seats(char *UID, char *EID, int num_people) {
     Event *e = find_event(EID);
     if (!e) return -1; // Event doesn't exist (NOK)
     if (e->status == 1) return -2; // Event closed (CLS)
+    
+    // Check if event is past
+    if (is_date_past(e->date, e->time)) return -2; // Treat as closed
+    
     if (e->status == 2 || e->status == 3) return -3; // Sold out or ended (FUL)
     if (e->seats_reserved + num_people > e->attendance_size) return -4; // Not enough seats (FUL)
     
@@ -173,8 +177,8 @@ int reserve_seats(char *UID, char *EID, int num_people) {
     strcpy(new_res->UID, UID);
     strcpy(new_res->EID, EID);
     new_res->num_people = num_people;
-    // TODO: Add current date to reservation_date
-    strcpy(new_res->reservation_date, "24-11-2025");
+    
+    get_current_date(new_res->reservation_date);
     
     new_res->next = reservation_list;
     reservation_list = new_res;

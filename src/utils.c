@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 #include "utils.h"
 
 #ifndef BUFFER_SIZE
@@ -83,6 +84,50 @@ int validate_eid(const char *eid) {
     for (int i = 0; i < 3; i++)
         if (!isdigit((unsigned char)eid[i])) return 0;
     return 1;
+}
+
+int is_date_past(const char *date, const char *time_str) {
+    // date format: DD-MM-YYYY
+    // time format: HH:MM
+    
+    int d, m, y, h, min;
+    if (sscanf(date, "%d-%d-%d", &d, &m, &y) != 3) return 0;
+    if (sscanf(time_str, "%d:%d", &h, &min) != 2) return 0;
+    
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    
+    // Compare year
+    int current_year = t->tm_year + 1900;
+    if (y < current_year) return 1;
+    if (y > current_year) return 0;
+    
+    // Compare month
+    int current_month = t->tm_mon + 1;
+    if (m < current_month) return 1;
+    if (m > current_month) return 0;
+    
+    // Compare day
+    int current_day = t->tm_mday;
+    if (d < current_day) return 1;
+    if (d > current_day) return 0;
+    
+    // Compare hour
+    int current_hour = t->tm_hour;
+    if (h < current_hour) return 1;
+    if (h > current_hour) return 0;
+    
+    // Compare minute
+    int current_min = t->tm_min;
+    if (min < current_min) return 1;
+    
+    return 0; // Not past (future or present)
+}
+
+void get_current_date(char *buffer) {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    sprintf(buffer, "%02d-%02d-%04d", t->tm_mday, t->tm_mon + 1, t->tm_year + 1900);
 }
 
 // TCP I/O robustas - loops até byte count completo

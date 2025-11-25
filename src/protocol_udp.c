@@ -23,11 +23,13 @@ static Event* find_event(const char *EID) {
 
 // Compute event state according to spec: 0 past,1 accepting,2 future sold out,3 closed
 static int compute_event_state(const Event *e) {
-    // Placeholder: without parsing date yet. Use status and seats.
-    if (e->status == 3) return 3; // closed
+    if (e->status == 1) return 3; // closed by owner
+    
+    if (is_date_past(e->date, e->time)) return 0; // past
+    
     if (e->seats_reserved >= e->attendance_size) return 2; // sold out (future)
-    // Without date logic treat as accepting (1)
-    return 1;
+    
+    return 1; // accepting
 }
 
 void process_udp_command(int udp_fd, char *buffer, ssize_t n,

@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <sys/select.h>
 #include <errno.h>
+#include <signal.h>
 
 #define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
@@ -245,6 +246,9 @@ int main(int argc, char *argv[]) {
     
     printf("Servidor iniciado na porta %s%s\n", port, verbose_mode ? " (verbose)" : "");
     
+    // Ignore SIGPIPE to prevent crash on client disconnect
+    signal(SIGPIPE, SIG_IGN);
+    
     fd_set read_fds;
     int max_fd;
     int client_socket[MAX_CLIENTS];
@@ -264,9 +268,20 @@ int main(int argc, char *argv[]) {
             if (sd > max_fd) max_fd = sd;
         }
         
-        if (select(max_fd + 1, &read_fds, NULL, NULL, NULL) < 0 && errno != EINTR) {
+        struct timeval timeout;
+        timeout.tv_sec = 10;
+        timeout.tv_usec = 0;
+        
+        int activity = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
+        
+        if (activity < 0 && errno != EINTR) {
             perror("Select error");
             break;
+        }
+        
+        if (activity == 0) {
+            // Timeout event - can be used for maintenance tasks
+            continue;
         }
         
         // Handle UDP

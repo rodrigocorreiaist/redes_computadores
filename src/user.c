@@ -639,8 +639,8 @@ void print_help() {
     printf("  list          - Listar todos os eventos (TCP)\n");
     printf("  show          - Mostrar detalhes de evento (TCP)\n");
     printf("  reserve       - Reservar lugares (TCP)\n");
-    printf("  myevents      - Listar os meus eventos criados (UDP)\n");
-    printf("  myreservations - Listar as minhas reservas (UDP)\n");
+    printf("  myevents (mye) - Listar os meus eventos criados (UDP)\n");
+    printf("  myreservations (myr) - Listar as minhas reservas (UDP)\n");
     printf("  help          - Mostrar esta ajuda\n");
     printf("  exit          - Sair do programa\n");
     printf("\n");
@@ -714,9 +714,9 @@ int main(int argc, char *argv[]) {
             cmd_show(&server_addr);
         } else if (strcmp(command, "reserve") == 0) {
             cmd_reserve(&server_addr, logged_uid, logged_pass, &logged_in);
-        } else if (strcmp(command, "myevents") == 0) {
+        } else if (strcmp(command, "myevents") == 0 || strcmp(command, "mye") == 0) {
             cmd_myevents(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
-        } else if (strcmp(command, "myreservations") == 0) {
+        } else if (strcmp(command, "myreservations") == 0 || strcmp(command, "myr") == 0) {
             cmd_myreservations(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
         } else if (strcmp(command, "help") == 0) {
             print_help();

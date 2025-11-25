@@ -267,12 +267,8 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in)
         return;
     }
     
-    // Send command: LST [UID]\n
-    if (*logged_in) {
-        snprintf(command, BUFFER_SIZE, "LST %s\n", logged_uid);
-    } else {
-        snprintf(command, BUFFER_SIZE, "LST\n");
-    }
+    // Send command: LST\n
+    snprintf(command, BUFFER_SIZE, "LST\n");
 
     ssize_t sent = write(tcp_fd, command, strlen(command));
     if (sent < 0) {

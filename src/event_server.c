@@ -24,6 +24,11 @@ Reservation *reservation_list = NULL;
 
 int total_events = 0; // Contador para gerar EIDs únicos
 int verbose_mode = 0;
+volatile sig_atomic_t keep_running = 1;
+
+void handle_signal(int sig) {
+    keep_running = 0;
+}
 
 // --- Funções Auxiliares ---
 
@@ -248,13 +253,15 @@ int main(int argc, char *argv[]) {
     
     // Ignore SIGPIPE to prevent crash on client disconnect
     signal(SIGPIPE, SIG_IGN);
+    // Handle SIGINT for graceful shutdown
+    signal(SIGINT, handle_signal);
     
     fd_set read_fds;
     int max_fd;
     int client_socket[MAX_CLIENTS];
     for (int i = 0; i < MAX_CLIENTS; i++) client_socket[i] = 0;
     
-    while (1) {
+    while (keep_running) {
         FD_ZERO(&read_fds);
         FD_SET(udp_fd, &read_fds);
         FD_SET(tcp_fd, &read_fds);

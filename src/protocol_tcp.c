@@ -50,6 +50,7 @@ static void handle_cre(int client_fd, const char *buffer) {
                         UID, password, name, date, time, &capacity, filename, &filesize);
     
     if (parsed != 8) {
+        fprintf(stderr, "CRE parse error: parsed %d/8 fields from: %s\n", parsed, buffer);
         send_all_tcp(client_fd, "RCE ERR\n", 8);
         return;
     }
@@ -116,6 +117,7 @@ static void handle_cre(int client_fd, const char *buffer) {
     // Send success response
     char response[32];
     snprintf(response, sizeof(response), "RCE OK %s\n", eid_str);
+    fprintf(stderr, "CRE: Sending response: %s", response);
     send_all_tcp(client_fd, response, strlen(response));
 }
 

@@ -166,7 +166,16 @@ int recv_line_tcp(int fd, char *buf, size_t maxlen) {
         ssize_t n = read(fd, &c, 1);
         if (n <= 0) {
             if (n < 0 && errno == EINTR) continue;
-            return -1;
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                // Timeout occurred
+                if (i > 0) {
+                    // Partial data received, return what we have
+                    buf[i] = '\0';
+                    return (int)i;
+                }
+                return -2; // Timeout with no data
+            }
+            return -1; // Other error or connection closed
         }
         buf[i++] = c;
         if (c == '\n') break;

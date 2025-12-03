@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -35,26 +36,19 @@ int send_udp_command(int udp_fd, struct sockaddr_in *server_addr, const char *co
 }
 
 // Comando: login
-void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char UID[10], password[20]; // Buffers maiores para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
-    printf("UID (6 dígitos): ");
-    if (scanf("%9s", UID) != 1) {
-        printf("Erro ao ler UID\n");
+    if (sscanf(args, "%9s %19s", UID, password) != 2) {
+        printf("Uso: login <UID> <password>\n");
         return;
     }
     
     // Valida UID
     if (!validate_uid(UID)) {
         printf("Erro: UID deve ter exatamente 6 dígitos\n");
-        return;
-    }
-    
-    printf("Password (8 caracteres alfanuméricos): ");
-    if (scanf("%19s", password) != 1) {
-        printf("Erro ao ler password\n");
         return;
     }
     
@@ -78,7 +72,7 @@ void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, ch
     }
 }
 
-void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -99,7 +93,7 @@ void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, c
     }
 }
 
-void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char password[20]; // Buffer maior para detectar erros
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
@@ -109,9 +103,8 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
         return;
     }
     
-    printf("Password: ");
-    if (scanf("%19s", password) != 1) {
-        printf("Erro ao ler password\n");
+    if (sscanf(args, "%19s", password) != 1) {
+        printf("Uso: unregister <password>\n");
         return;
     }
     
@@ -133,7 +126,7 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
     }
 }
 
-void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -149,7 +142,7 @@ void cmd_myevents(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid,
     }
 }
 
-void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -165,7 +158,7 @@ void cmd_myreservations(int udp_fd, struct sockaddr_in *server_addr, char *logge
     }
 }
 
-void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char oldPassword[20], newPassword[20];
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
@@ -176,20 +169,13 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
         return;
     }
     
-    printf("Password atual: ");
-    if (scanf("%19s", oldPassword) != 1) {
-        printf("Erro ao ler password\n");
+    if (sscanf(args, "%19s %19s", oldPassword, newPassword) != 2) {
+        printf("Uso: changepass <old_password> <new_password>\n");
         return;
     }
     
     if (!validate_password(oldPassword)) {
         printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
-        return;
-    }
-    
-    printf("Nova password: ");
-    if (scanf("%19s", newPassword) != 1) {
-        printf("Erro ao ler password\n");
         return;
     }
     
@@ -248,7 +234,7 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
     }
 }
 
-void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in) {
+void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in, char *args) {
     char command[BUFFER_SIZE];
     char buf[BUFFER_SIZE];
     int tcp_fd;
@@ -307,7 +293,7 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in)
     close(tcp_fd);
 }
 
-void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char name[12], date[12], time[7], filename[256];
     int capacity;
     size_t filesize;
@@ -318,35 +304,30 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    printf("Nome do evento (até 10 caracteres alfanuméricos): ");
-    if (scanf("%11s", name) != 1) return;
+    if (sscanf(args, "%11s %11s %6s %d %255s", name, date, time, &capacity, filename) != 5) {
+        printf("Uso: create <name> <date> <time> <capacity> <filename>\n");
+        return;
+    }
+    
     if (!validate_event_name(name)) {
-        printf("Erro: Nome inválido\n");
+        printf("Erro: Nome inválido (%s)\n", name);
         return;
     }
     
-    printf("Data (dd-mm-yyyy): ");
-    if (scanf("%11s", date) != 1) return;
     if (!validate_date(date)) {
-        printf("Erro: Data inválida\n");
+        printf("Erro: Data inválida (%s)\n", date);
         return;
     }
     
-    printf("Hora (hh:mm): ");
-    if (scanf("%6s", time) != 1) return;
     if (!validate_time(time)) {
-        printf("Erro: Hora inválida\n");
+        printf("Erro: Hora inválida (%s)\n", time);
         return;
     }
     
-    printf("Capacidade (10-999): ");
-    if (scanf("%d", &capacity) != 1 || capacity < 10 || capacity > 999) {
+    if (capacity < 10 || capacity > 999) {
         printf("Erro: Capacidade inválida\n");
         return;
     }
-    
-    printf("Ficheiro: ");
-    if (scanf("%255s", filename) != 1) return;
     
     // Open and read file
     FILE *fp = fopen(filename, "rb");
@@ -403,6 +384,9 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s %zu\n",
              logged_uid, logged_pass, name, date, time, capacity, basename, filesize);
     
+    printf("Debug: Enviando comando: %s", command);
+    printf("Debug: Tamanho do ficheiro: %zu bytes\n", filesize);
+    
     if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
         printf("Erro ao enviar comando\n");
         close(tcp_fd);
@@ -419,9 +403,22 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     }
     free(file_data);
     
+    printf("Debug: Ficheiro enviado com sucesso\n");
+    
+    // Set timeout for receiving response
+    struct timeval timeout;
+    timeout.tv_sec = 10;  // Increase timeout to 10 seconds
+    timeout.tv_usec = 0;
+    setsockopt(tcp_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    
     // Receive response
     char response[128];
+    printf("Debug: Aguardando resposta...\n");
     int n = recv_line_tcp(tcp_fd, response, sizeof(response));
+    printf("Debug: recv_line_tcp retornou %d\n", n);
+    if (n > 0) {
+        printf("Debug: Resposta recebida: %s", response);
+    }
     close(tcp_fd);
     
     if (n > 0) {
@@ -433,13 +430,21 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
             printf("Create: falha ao criar evento\n");
         } else if (strncmp(response, "RCE NLG", 7) == 0) {
             printf("Create: não autenticado\n");
+        } else if (strncmp(response, "RCE ERR", 7) == 0) {
+            printf("Create: erro de formato\n");
         } else {
-            printf("Create: erro (%s)\n", response);
+            printf("Create: resposta desconhecida (%s)\n", response);
         }
+    } else if (n == -2) {
+        printf("Create: timeout ao esperar resposta do servidor (10 segundos)\n");
+    } else if (n == -1) {
+        printf("Create: erro de conexão ou servidor fechou a conexão\n");
+    } else {
+        printf("Create: nenhuma resposta recebida\n");
     }
 }
 
-void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char EID[5];
     char command[128], response[128];
     int tcp_fd;
@@ -449,8 +454,11 @@ void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, char *logged_p
         return;
     }
     
-    printf("Event ID (3 dígitos): ");
-    if (scanf("%4s", EID) != 1) return;
+    if (sscanf(args, "%4s", EID) != 1) {
+        printf("Uso: close <EID>\n");
+        return;
+    }
+    
     if (!validate_eid(EID)) {
         printf("Erro: EID inválido\n");
         return;
@@ -489,12 +497,15 @@ void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, char *logged_p
     }
 }
 
-void cmd_show(struct sockaddr_in *server_addr) {
+void cmd_show(struct sockaddr_in *server_addr, char *args) {
     char EID[5], command[64];
     int tcp_fd;
     
-    printf("Event ID (3 dígitos): ");
-    if (scanf("%4s", EID) != 1) return;
+    if (sscanf(args, "%4s", EID) != 1) {
+        printf("Uso: show <EID>\n");
+        return;
+    }
+    
     if (!validate_eid(EID)) {
         printf("Erro: EID inválido\n");
         return;
@@ -567,7 +578,7 @@ void cmd_show(struct sockaddr_in *server_addr) {
     close(tcp_fd);
 }
 
-void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in) {
+void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
     char EID[5];
     int seats;
     char command[128], response[128];
@@ -578,15 +589,17 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
         return;
     }
     
-    printf("Event ID: ");
-    if (scanf("%4s", EID) != 1) return;
+    if (sscanf(args, "%4s %d", EID, &seats) != 2) {
+        printf("Uso: reserve <EID> <seats>\n");
+        return;
+    }
+    
     if (!validate_eid(EID)) {
         printf("Erro: EID inválido\n");
         return;
     }
     
-    printf("Número de lugares: ");
-    if (scanf("%d", &seats) != 1 || seats <= 0) {
+    if (seats <= 0) {
         printf("Erro: Número inválido\n");
         return;
     }
@@ -626,19 +639,20 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
 // Menu de ajuda
 void print_help() {
     printf("\nComandos disponíveis:\n");
-    printf("  login         - Fazer login / registar novo utilizador\n");
-    printf("  logout        - Fazer logout\n");
-    printf("  unregister    - Desregistar utilizador\n");
-    printf("  changepass    - Alterar password\n");
-    printf("  create        - Criar novo evento (TCP)\n");
-    printf("  close         - Fechar evento (TCP)\n");
-    printf("  list          - Listar todos os eventos (TCP)\n");
-    printf("  show          - Mostrar detalhes de evento (TCP)\n");
-    printf("  reserve       - Reservar lugares (TCP)\n");
-    printf("  myevents (mye) - Listar os meus eventos criados (UDP)\n");
-    printf("  myreservations (myr) - Listar as minhas reservas (UDP)\n");
-    printf("  help          - Mostrar esta ajuda\n");
-    printf("  exit          - Sair do programa\n");
+    printf("  -login <UID> <password>              - Login (UID: 6 dig, pass: 8 alfanum)\n");
+    printf("  -logout                              - Fazer logout\n");
+    printf("  -unregister <password>               - Desregistar (pass: 8 alfanum)\n");
+    printf("  -changepass <old_pass> <new_pass>    - Alterar pass (8 alfanum)\n");
+    printf("  -create <name> <date> <time> <cap> <file>\n");
+    printf("      name: max 10 alfanum, date: DD-MM-YYYY, time: HH:MM, cap: 10..999\n");
+    printf("  -close <EID>                         - Fechar evento (EID: 3 dig)\n");
+    printf("  -list                                - Listar todos os eventos\n");
+    printf("  -show <EID>                          - Mostrar detalhes (EID: 3 dig)\n");
+    printf("  -reserve <EID> <seats>               - Reservar lugares\n");
+    printf("  -myevents (mye)                      - Listar os meus eventos\n");
+    printf("  -myreservations (myr)                - Listar as minhas reservas\n");
+    printf("  -help                                - Mostrar esta ajuda\n");
+    printf("  -exit                                - Sair do programa\n");
     printf("\n");
 }
 
@@ -650,7 +664,6 @@ int main(int argc, char *argv[]) {
     int logged_in = 0;
     char *server_ip = "127.0.0.1";
     char *port = DEFAULT_PORT;
-    char command[100];
     
     // Parse argumentos: user [-n ESIPaddress] [-p ESport]
     for (int i = 1; i < argc; i++) {
@@ -682,38 +695,46 @@ int main(int argc, char *argv[]) {
     print_help();
     
     // Loop de comandos
+    char input_line[BUFFER_SIZE];
     while (1) {
         printf("> ");
-        if (scanf("%99s", command) != 1) {
+        if (fgets(input_line, sizeof(input_line), stdin) == NULL) {
             break;
         }
         
-        // Limpa buffer de entrada para evitar problemas com argumentos extras
-        int c;
-        while ((c = getchar()) != '\n' && c != EOF);
+        // Remove newline
+        input_line[strcspn(input_line, "\n")] = 0;
+        
+        char command[100];
+        char args[BUFFER_SIZE];
+        args[0] = '\0';
+        
+        // Split command and args
+        int n = sscanf(input_line, "%99s %[^\n]", command, args);
+        if (n < 1) continue; // Empty line
         
         if (strcmp(command, "login") == 0) {
-            cmd_login(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_login(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "logout") == 0) {
-            cmd_logout(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_logout(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "unregister") == 0) {
-            cmd_unregister(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_unregister(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "changepass") == 0) {
-            cmd_changepass(&server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_changepass(&server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "create") == 0) {
-            cmd_create(&server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_create(&server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "close") == 0) {
-            cmd_close(&server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_close(&server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "list") == 0) {
-            cmd_list(&server_addr, logged_uid, &logged_in);
+            cmd_list(&server_addr, logged_uid, &logged_in, args);
         } else if (strcmp(command, "show") == 0) {
-            cmd_show(&server_addr);
+            cmd_show(&server_addr, args);
         } else if (strcmp(command, "reserve") == 0) {
-            cmd_reserve(&server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_reserve(&server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "myevents") == 0 || strcmp(command, "mye") == 0) {
-            cmd_myevents(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_myevents(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "myreservations") == 0 || strcmp(command, "myr") == 0) {
-            cmd_myreservations(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in);
+            cmd_myreservations(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "help") == 0) {
             print_help();
         } else if (strcmp(command, "exit") == 0) {

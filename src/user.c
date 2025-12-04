@@ -384,7 +384,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s %zu\n",
              logged_uid, logged_pass, name, date, time, capacity, basename, filesize);
     
-    printf("Debug: Enviando comando: %s", command);
+    printf("Debug: Enviando comando (tamanho=%zu): %s", strlen(command), command);
     printf("Debug: Tamanho do ficheiro: %zu bytes\n", filesize);
     
     if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
@@ -394,6 +394,8 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
+    printf("Debug: Comando enviado com sucesso\n");
+    
     // Send file data
     if (send_all_tcp(tcp_fd, file_data, filesize) < 0) {
         printf("Erro ao enviar ficheiro\n");
@@ -401,9 +403,9 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         free(file_data);
         return;
     }
-    free(file_data);
     
-    printf("Debug: Ficheiro enviado com sucesso\n");
+    printf("Debug: Ficheiro enviado com sucesso (%zu bytes)\n", filesize);
+    free(file_data);
     
     // Set timeout for receiving response
     struct timeval timeout;

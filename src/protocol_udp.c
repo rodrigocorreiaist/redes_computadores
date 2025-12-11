@@ -4,38 +4,14 @@
 #include <stdlib.h>
 #include "protocol_udp.h"
 #include "utils.h"
+#include "storage.h"
 
-extern User *user_list;
-extern Event *event_list;
-extern Reservation *reservation_list;
 extern int verbose_mode;
-
-static User* find_user(const char *UID) {
-    User *curr = user_list; while (curr) { if (strcmp(curr->UID, UID)==0) return curr; curr = curr->next; }
-    return NULL;
-}
-
-static Event* find_event(const char *EID) {
-    Event *curr = event_list; while (curr) { if (strcmp(curr->EID, EID)==0) return curr; curr = curr->next; }
-    return NULL;
-}
-
-
-// Compute event state according to spec: 0 past,1 accepting,2 future sold out,3 closed
-static int compute_event_state(const Event *e) {
-    if (e->status == 1) return 3; // closed by owner
-    
-    if (is_date_past(e->date, e->time)) return 0; // past
-    
-    if (e->seats_reserved >= e->attendance_size) return 2; // sold out (future)
-    
-    return 1; // accepting
-}
 
 void process_udp_command(int udp_fd, char *buffer, ssize_t n,
                          struct sockaddr_in *client_addr, socklen_t addr_len,
                          int verbose_mode_local) {
-    char response[1024];
+    char response[65535]; // Increased buffer size for lists
     char command[4] = "";
     char UID[7] = "";
     buffer[n] = '\0';
@@ -54,15 +30,20 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, sizeof(response), "RLI ERR\n");
             } else {
-                User *u = find_user(UID);
-                if (u) {
-                    if (strcmp(u->password, password) == 0) {
-                        u->loggedIn = 1;
+                if (storage_user_exists(UID)) {
+                    if (storage_check_password(UID, password)) {
+                        storage_login_user(UID);
                         snprintf(response, sizeof(response), "RLI OK\n");
-                    } else snprintf(response, sizeof(response), "RLI NOK\n");
+                    } else {
+                        snprintf(response, sizeof(response), "RLI NOK\n");
+                    }
                 } else {
-                    if (register_user(UID, password) == 0) snprintf(response, sizeof(response), "RLI REG\n");
-                    else snprintf(response, sizeof(response), "RLI ERR\n");
+                    if (storage_register_user(UID, password) == 0) {
+                        storage_login_user(UID);
+                        snprintf(response, sizeof(response), "RLI REG\n");
+                    } else {
+                        snprintf(response, sizeof(response), "RLI ERR\n");
+                    }
                 }
             }
         } else snprintf(response, sizeof(response), "RLI ERR\n");
@@ -73,25 +54,35 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, sizeof(response), "RLO ERR\n");
             } else {
-                int res = logout_user(UID, password);
-                if (res == 0) snprintf(response, sizeof(response), "RLO OK\n");
-                else if (res == -2) snprintf(response, sizeof(response), "RLO WRP\n");
-                else if (res == -3) snprintf(response, sizeof(response), "RLO NOK\n");
-                else snprintf(response, sizeof(response), "RLO UNR\n");
+                if (!storage_user_exists(UID)) {
+                    snprintf(response, sizeof(response), "RLO UNR\n");
+                } else if (!storage_check_password(UID, password)) {
+                    snprintf(response, sizeof(response), "RLO WRP\n");
+                } else if (!storage_is_logged_in(UID)) {
+                    snprintf(response, sizeof(response), "RLO NOK\n");
+                } else {
+                    storage_logout_user(UID);
+                    snprintf(response, sizeof(response), "RLO OK\n");
+                }
             }
         } else snprintf(response, sizeof(response), "RLO ERR\n");
     }
-    else if (strcmp(command, "UNR") == 0) { // renamed from LUR
+    else if (strcmp(command, "UNR") == 0) {
         char password[9];
         if (sscanf(buffer, "UNR %6s %8s", UID, password) == 2) {
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, sizeof(response), "RUR ERR\n");
             } else {
-                int res = unregister_user(UID, password);
-                if (res == 0) snprintf(response, sizeof(response), "RUR OK\n");
-                else if (res == -2) snprintf(response, sizeof(response), "RUR WRP\n");
-                else if (res == -3) snprintf(response, sizeof(response), "RUR NOK\n");
-                else snprintf(response, sizeof(response), "RUR UNR\n");
+                if (!storage_user_exists(UID)) {
+                    snprintf(response, sizeof(response), "RUR UNR\n");
+                } else if (!storage_check_password(UID, password)) {
+                    snprintf(response, sizeof(response), "RUR WRP\n");
+                } else if (!storage_is_logged_in(UID)) {
+                    snprintf(response, sizeof(response), "RUR NOK\n");
+                } else {
+                    storage_unregister_user(UID);
+                    snprintf(response, sizeof(response), "RUR OK\n");
+                }
             }
         } else snprintf(response, sizeof(response), "RUR ERR\n");
     }
@@ -101,27 +92,28 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, sizeof(response), "RME ERR\n");
             } else {
-                User *u = find_user(UID);
-                if (!u || !u->loggedIn) {
-                    snprintf(response, sizeof(response), !u?"RME NLG\n":"RME NLG\n");
-                } else if (strcmp(u->password, password) != 0) {
+                if (!storage_user_exists(UID)) {
+                    snprintf(response, sizeof(response), "RME ERR\n"); // Or UNR? Spec says ERR for format, but maybe UNR/NOK? Spec: NLG, WRP, NOK(no events), ERR.
+                    // Wait, spec says: "RME status [EID state]*".
+                    // "NLG" - not authenticated.
+                    // "WRP" - wrong password.
+                    // "NOK" - no events.
+                    // "ERR" - format error.
+                    // It doesn't mention UNR.
+                    // If user doesn't exist, check password will fail -> WRP? Or treat as NLG?
+                    // Let's assume check_password returns false if user doesn't exist.
+                    snprintf(response, sizeof(response), "RME NLG\n");
+                } else if (!storage_check_password(UID, password)) {
                     snprintf(response, sizeof(response), "RME WRP\n");
+                } else if (!storage_is_logged_in(UID)) {
+                    snprintf(response, sizeof(response), "RME NLG\n");
                 } else {
-                    char list[1024] = ""; int count=0; Event *e = event_list;
-                    while (e) {
-                        if (strcmp(e->owner_UID, UID)==0) {
-                            char item[32];
-                            int st = compute_event_state(e);
-                            snprintf(item, sizeof(item), " %s %d", e->EID, st);
-                            strncat(list, item, sizeof(list)-strlen(list)-1);
-                            count++;
-                        }
-                        e = e->next;
-                    }
-                    if (!count) snprintf(response, sizeof(response), "RME NOK\n");
-                    else {
-                        size_t max_list = sizeof(response) - strlen("RME OK") - 2;
-                        snprintf(response, sizeof(response), "RME OK%.*s\n", (int)max_list, list);
+                    char list_buffer[60000];
+                    storage_list_my_events(UID, list_buffer, sizeof(list_buffer));
+                    if (strlen(list_buffer) == 0) {
+                        snprintf(response, sizeof(response), "RME NOK\n");
+                    } else {
+                        snprintf(response, sizeof(response), "RME OK%s\n", list_buffer);
                     }
                 }
             }
@@ -133,29 +125,19 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
             if (!validate_uid(UID) || !validate_password(password)) {
                 snprintf(response, sizeof(response), "RMR ERR\n");
             } else {
-                User *u = find_user(UID);
-                if (!u || !u->loggedIn) {
-                    snprintf(response, sizeof(response), !u?"RMR NLG\n":"RMR NLG\n");
-                } else if (strcmp(u->password, password) != 0) {
+                if (!storage_user_exists(UID)) {
+                    snprintf(response, sizeof(response), "RMR NLG\n");
+                } else if (!storage_check_password(UID, password)) {
                     snprintf(response, sizeof(response), "RMR WRP\n");
+                } else if (!storage_is_logged_in(UID)) {
+                    snprintf(response, sizeof(response), "RMR NLG\n");
                 } else {
-                    char list[1024] = ""; int count=0; Reservation *r = reservation_list;
-                    while (r) {
-                        if (strcmp(r->UID, UID)==0) {
-                            Event *e = find_event(r->EID);
-                            if (e) {
-                                char item[64];
-                                snprintf(item, sizeof(item), " %s %s %s %d", r->EID, e->date, e->time, r->num_people);
-                                strncat(list, item, sizeof(list)-strlen(list)-1);
-                                count++;
-                            }
-                        }
-                        r = r->next;
-                    }
-                    if (!count) snprintf(response, sizeof(response), "RMR NOK\n");
-                    else {
-                        size_t max_list = sizeof(response) - strlen("RMR OK") - 2;
-                        snprintf(response, sizeof(response), "RMR OK%.*s\n", (int)max_list, list);
+                    char list_buffer[60000];
+                    storage_list_my_reservations(UID, list_buffer, sizeof(list_buffer));
+                    if (strlen(list_buffer) == 0) {
+                        snprintf(response, sizeof(response), "RMR NOK\n");
+                    } else {
+                        snprintf(response, sizeof(response), "RMR OK%s\n", list_buffer);
                     }
                 }
             }
@@ -167,3 +149,4 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
 
     sendto(udp_fd, response, strlen(response), 0, (struct sockaddr*)client_addr, addr_len);
 }
+

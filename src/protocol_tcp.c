@@ -9,34 +9,10 @@
 #include <sys/types.h>
 #include "protocol_tcp.h"
 #include "utils.h"
+#include "storage.h"
 
 #define BUFFER_SIZE 1024
 #define MAX_FILE_SIZE 10485760  // 10MB
-
-extern User *user_list;
-extern Event *event_list;
-extern Reservation *reservation_list;
-extern int total_events;
-
-// Helper to find user
-static User* find_user_tcp(const char *UID) {
-    User *curr = user_list;
-    while (curr) {
-        if (strcmp(curr->UID, UID) == 0) return curr;
-        curr = curr->next;
-    }
-    return NULL;
-}
-
-// Helper to find event
-static Event* find_event_tcp(const char *EID) {
-    Event *curr = event_list;
-    while (curr) {
-        if (strcmp(curr->EID, EID) == 0) return curr;
-        curr = curr->next;
-    }
-    return NULL;
-}
 
 // Protocol: CRE UID pass name date time cap filename filesize\n <binary>
 // Response: RCE OK EID\n | RCE NOK\n | RCE ERR\n
@@ -50,7 +26,6 @@ static void handle_cre(int client_fd, const char *buffer) {
                         UID, password, name, date, time, &capacity, filename, &filesize);
     
     if (parsed != 8) {
-        fprintf(stderr, "CRE parse error: parsed %d/8 fields from: %s\n", parsed, buffer);
         send_all_tcp(client_fd, "RCE ERR\n", 8);
         return;
     }
@@ -65,14 +40,13 @@ static void handle_cre(int client_fd, const char *buffer) {
     }
     
     // Check user exists and password is correct
-    User *u = find_user_tcp(UID);
-    if (!u || strcmp(u->password, password) != 0) {
+    if (!storage_user_exists(UID) || !storage_check_password(UID, password)) {
         send_all_tcp(client_fd, "RCE NOK\n", 8);
         return;
     }
     
     // Check if user is logged in
-    if (!u->loggedIn) {
+    if (!storage_is_logged_in(UID)) {
         send_all_tcp(client_fd, "RCE NLG\n", 8);
         return;
     }
@@ -91,38 +65,21 @@ static void handle_cre(int client_fd, const char *buffer) {
     }
     
     // Create event
-    int eid_num = create_event(UID, name, date, time, capacity, filename, filesize);
-    if (eid_num < 0) {
+    char eid[4];
+    if (storage_create_event(UID, name, date, time, capacity, filename, file_data, filesize, eid) != 0) {
         free(file_data);
         send_all_tcp(client_fd, "RCE NOK\n", 8);
         return;
     }
     
-    // Save file to EVENTS directory
-    char eid_str[16];
-    snprintf(eid_str, sizeof(eid_str), "%03d", eid_num);
-    
-    mkdir("EVENTS", 0755);  // Create directory if doesn't exist
-    
-    char filepath[300];
-    snprintf(filepath, sizeof(filepath), "EVENTS/%s_%s", eid_str, filename);
-    
-    FILE *fp = fopen(filepath, "wb");
-    if (fp) {
-        fwrite(file_data, 1, filesize, fp);
-        fclose(fp);
-    }
     free(file_data);
-    
-    // Send success response
     char response[32];
-    snprintf(response, sizeof(response), "RCE OK %s\n", eid_str);
-    fprintf(stderr, "CRE: Sending response: %s", response);
+    snprintf(response, sizeof(response), "RCE OK %s\n", eid);
     send_all_tcp(client_fd, response, strlen(response));
 }
 
-// Protocol: CLS UID pass EID\n
-// Response: RCL OK\n | RCL NOK\n | RCL ERR\n | RCL EID\n | RCL USR\n
+// Protocol: CLS UID pass EID
+// Response: RCL OK\n | RCL NOK\n | RCL EOW\n | RCL CLO\n | RCL ERR\n
 static void handle_cls(int client_fd, const char *buffer) {
     char UID[7], password[9], EID[4];
     
@@ -136,92 +93,52 @@ static void handle_cls(int client_fd, const char *buffer) {
         return;
     }
     
-    // Check user
-    User *u = find_user_tcp(UID);
-    if (!u || strcmp(u->password, password) != 0) {
-        send_all_tcp(client_fd, "RCL USR\n", 8);
+    if (!storage_user_exists(UID)) {
+        send_all_tcp(client_fd, "RCL NOK\n", 8);
         return;
     }
     
-    if (!u->loggedIn) {
+    if (!storage_check_password(UID, password)) {
+        send_all_tcp(client_fd, "RCL NOK\n", 8); 
+        return;
+    }
+    
+    if (!storage_is_logged_in(UID)) {
         send_all_tcp(client_fd, "RCL NLG\n", 8);
         return;
     }
     
-    // Check event
-    Event *e = find_event_tcp(EID);
-    if (!e) {
-        send_all_tcp(client_fd, "RCL EID\n", 8);
-        return;
-    }
-    
-    // Check ownership
-    if (strcmp(e->owner_UID, UID) != 0) {
-        send_all_tcp(client_fd, "RCL USR\n", 8);
-        return;
-    }
-    
-    // Check if already closed or sold out
-    if (e->status == 1) {
-        send_all_tcp(client_fd, "RCL OK\n", 7);  // Already closed, OK
-        return;
-    }
-    
-    if (e->status == 2) {
-        send_all_tcp(client_fd, "RCL FUL\n", 8);  // Sold out
-        return;
-    }
-    
-    // Close event
-    int result = close_event(UID, EID);
-    if (result == 0) {
-        send_all_tcp(client_fd, "RCL OK\n", 7);
-    } else {
-        send_all_tcp(client_fd, "RCL NOK\n", 8);
-    }
+    int res = storage_close_event(UID, EID);
+    if (res == 0) send_all_tcp(client_fd, "RCL OK\n", 7);
+    else if (res == -1) send_all_tcp(client_fd, "RCL NOE\n", 8); // Event not found
+    else if (res == -2) send_all_tcp(client_fd, "RCL EOW\n", 8); // Not owner
+    else send_all_tcp(client_fd, "RCL CLO\n", 8); // Already closed (or other state)
 }
 
-// Protocol: LST\n
-// Response: RLS OK N [ EID name date time capacity reserved ]\n | RLS NOK\n
-static void handle_lst(int client_fd, const char *buffer) {
-    char response[BUFFER_SIZE * 4];
-    int count = 0;
-    Event *e = event_list;
-    
-    // Count all events
-    while (e) {
-        count++;
-        e = e->next;
-    }
-    
-    if (count == 0) {
+// Protocol: LST
+// Response: RLS OK [EID name state date]*\n | RLS NOK\n
+static void handle_lst(int client_fd) {
+    char list_buffer[60000];
+    if (storage_list_events(list_buffer, sizeof(list_buffer)) != 0) {
         send_all_tcp(client_fd, "RLS NOK\n", 8);
         return;
     }
     
-    // Build response
-    char temp[BUFFER_SIZE];
-    snprintf(response, sizeof(response), "RLS OK %d", count);
-    
-    e = event_list;
-    while (e) {
-        // Format: EID name date time capacity reserved
-        snprintf(temp, sizeof(temp), " %s %s %s %s %d %d",
-                 e->EID, e->name, e->date, e->time, 
-                 e->attendance_size, e->seats_reserved);
-        strcat(response, temp);
-        e = e->next;
+    if (strlen(list_buffer) == 0) {
+        send_all_tcp(client_fd, "RLS OK\n", 7);
+    } else {
+        char header[32];
+        snprintf(header, sizeof(header), "RLS OK");
+        send_all_tcp(client_fd, header, strlen(header));
+        send_all_tcp(client_fd, list_buffer, strlen(list_buffer));
+        send_all_tcp(client_fd, "\n", 1);
     }
-    strcat(response, "\n");
-    
-    send_all_tcp(client_fd, response, strlen(response));
 }
 
-// Protocol: SED EID\n
-// Response: RSE OK name date time capacity reserved filename filesize\n <binary> | RSE NOK\n
+// Protocol: SED EID
+// Response: RSE OK UID name date time cap reserved filename filesize\n <binary>
 static void handle_sed(int client_fd, const char *buffer) {
     char EID[4];
-    
     if (sscanf(buffer, "SED %3s", EID) != 1) {
         send_all_tcp(client_fd, "RSE ERR\n", 8);
         return;
@@ -232,146 +149,108 @@ static void handle_sed(int client_fd, const char *buffer) {
         return;
     }
     
-    // Find event
-    Event *e = find_event_tcp(EID);
-    if (!e) {
+    char uid[7], name[100], date[11], time[6], fname[100];
+    int attendance, reserved;
+    size_t fsize;
+    
+    if (storage_get_event_details(EID, uid, name, date, time, &attendance, &reserved, fname, &fsize) != 0) {
         send_all_tcp(client_fd, "RSE NOK\n", 8);
         return;
     }
     
-    // Build file path
-    char filepath[300];
-    snprintf(filepath, sizeof(filepath), "EVENTS/%s_%s", EID, e->filename);
-    
-    // Read file
-    FILE *fp = fopen(filepath, "rb");
-    if (!fp) {
-        send_all_tcp(client_fd, "RSE NOK\n", 8);
-        return;
-    }
-    
-    // Get file size
-    fseek(fp, 0, SEEK_END);
-    size_t fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    
-    // Read file data
     char *file_data = (char *)malloc(fsize);
     if (!file_data) {
-        fclose(fp);
         send_all_tcp(client_fd, "RSE NOK\n", 8);
         return;
     }
     
-    size_t read_size = fread(file_data, 1, fsize, fp);
-    fclose(fp);
-    
-    if (read_size != fsize) {
+    if (storage_get_event_file_data(EID, fname, file_data, fsize) != 0) {
         free(file_data);
         send_all_tcp(client_fd, "RSE NOK\n", 8);
         return;
     }
     
-    // Send response header
     char response[512];
-    snprintf(response, sizeof(response), "RSE OK %s %s %s %d %d %s %zu %d\n",
-             e->name, e->date, e->time, e->attendance_size, e->seats_reserved,
-             e->filename, fsize, e->status);
-    
+    // Spec: RSE status [UID name event_date attendance_size Seats_reserved Fname Fsize Fdata]
+    snprintf(response, sizeof(response), "RSE OK %s %s %s %s %d %d %s %zu ", 
+             uid, name, date, time, attendance, reserved, fname, fsize);
+             
     send_all_tcp(client_fd, response, strlen(response));
-    
-    // Send binary file data
     send_all_tcp(client_fd, file_data, fsize);
+    send_all_tcp(client_fd, "\n", 1);
     
     free(file_data);
 }
 
-// Protocol: RID UID pass EID seats\n
-// Response: RRI ACC\n | RRI NOK\n | RRI ERR\n | RRI CLS\n | RRI FUL\n
+// Protocol: RID UID pass EID num_seats
+// Response: RRI OK\n | RRI NOK\n | RRI ERR\n
 static void handle_rid(int client_fd, const char *buffer) {
     char UID[7], password[9], EID[4];
-    int seats;
+    int num_seats;
     
-    if (sscanf(buffer, "RID %6s %8s %3s %d", UID, password, EID, &seats) != 4) {
+    if (sscanf(buffer, "RID %6s %8s %3s %d", UID, password, EID, &num_seats) != 4) {
         send_all_tcp(client_fd, "RRI ERR\n", 8);
         return;
     }
     
-    if (!validate_uid(UID) || !validate_password(password) || 
-        !validate_eid(EID) || seats <= 0) {
+    if (!validate_uid(UID) || !validate_password(password) || !validate_eid(EID) || num_seats <= 0) {
         send_all_tcp(client_fd, "RRI ERR\n", 8);
         return;
     }
     
-    // Check user
-    User *u = find_user_tcp(UID);
-    if (!u || strcmp(u->password, password) != 0) {
-        send_all_tcp(client_fd, "RRI NOK\n", 8);
+    if (!storage_user_exists(UID) || !storage_check_password(UID, password)) {
+        send_all_tcp(client_fd, "RRI NOK\n", 8); 
         return;
     }
     
-    if (!u->loggedIn) {
+    if (!storage_is_logged_in(UID)) {
         send_all_tcp(client_fd, "RRI NLG\n", 8);
         return;
     }
     
-    // Reserve seats
-    int result = reserve_seats(UID, EID, seats);
-    
-    if (result == 0) {
-        send_all_tcp(client_fd, "RRI ACC\n", 8);
-    } else if (result == -1) {
-        send_all_tcp(client_fd, "RRI NOK\n", 8);  // Event doesn't exist
-    } else if (result == -2) {
-        send_all_tcp(client_fd, "RRI CLS\n", 8);  // Event closed
-    } else if (result == -3 || result == -4) {
-        send_all_tcp(client_fd, "RRI FUL\n", 8);  // Sold out or not enough seats
-    } else {
-        send_all_tcp(client_fd, "RRI NOK\n", 8);
-    }
+    int res = storage_reserve(UID, EID, num_seats);
+    if (res == 0) send_all_tcp(client_fd, "RRI OK\n", 7);
+    else if (res == -1) send_all_tcp(client_fd, "RRI NOK\n", 8); // Event not found
+    else if (res == -2) send_all_tcp(client_fd, "RRI CPT\n", 8); // Closed/Past
+    else if (res == -3) send_all_tcp(client_fd, "RRI FUL\n", 8); // Full
+    else send_all_tcp(client_fd, "RRI ERR\n", 8);
 }
 
-// Protocol: CPS UID oldPassword newPassword\n
-// Response: RCP OK\n | RCP NOK\n | RCP ERR\n | RCP NLG\n | RCP NID\n
+// Protocol: CPS UID old_pass new_pass
+// Response: RCP OK\n | RCP NOK\n | RCP ERR\n
 static void handle_cps(int client_fd, const char *buffer) {
-    char UID[7], oldPassword[9], newPassword[9];
+    char UID[7], old_pass[9], new_pass[9];
     
-    // Parse command: CPS UID oldPassword newPassword
-    if (sscanf(buffer, "CPS %6s %8s %8s", UID, oldPassword, newPassword) != 3) {
+    if (sscanf(buffer, "CPS %6s %8s %8s", UID, old_pass, new_pass) != 3) {
         send_all_tcp(client_fd, "RCP ERR\n", 8);
         return;
     }
     
-    // Validate format
-    if (!validate_uid(UID) || !validate_password(oldPassword) || !validate_password(newPassword)) {
+    if (!validate_uid(UID) || !validate_password(old_pass) || !validate_password(new_pass)) {
         send_all_tcp(client_fd, "RCP ERR\n", 8);
         return;
     }
     
-    // Find user
-    User *u = find_user_tcp(UID);
-    
-    // Check if user exists
-    if (!u) {
-        send_all_tcp(client_fd, "RCP NID\n", 8); // Not IDentified
+    if (!storage_user_exists(UID)) {
+        send_all_tcp(client_fd, "RCP NOK\n", 8);
         return;
     }
     
-    // Check if user is logged in
-    if (!u->loggedIn) {
-        send_all_tcp(client_fd, "RCP NLG\n", 8); // Not Logged in
+    if (!storage_check_password(UID, old_pass)) {
+        send_all_tcp(client_fd, "RCP NOK\n", 8);
         return;
     }
     
-    // Check if old password matches
-    if (strcmp(u->password, oldPassword) != 0) {
-        send_all_tcp(client_fd, "RCP NOK\n", 8); // Password incorrect
+    if (!storage_is_logged_in(UID)) {
+        send_all_tcp(client_fd, "RCP NLG\n", 8);
         return;
     }
     
-    // Update password
-    strcpy(u->password, newPassword);
-    send_all_tcp(client_fd, "RCP OK\n", 7);
+    if (storage_change_password(UID, new_pass) == 0) {
+        send_all_tcp(client_fd, "RCP OK\n", 7);
+    } else {
+        send_all_tcp(client_fd, "RCP ERR\n", 8);
+    }
 }
 
 void process_tcp_command(int client_fd, int verbose_mode) {
@@ -422,7 +301,7 @@ void process_tcp_command(int client_fd, int verbose_mode) {
 
     if (!strcmp(cmd, "CRE")) handle_cre(client_fd, buffer);
     else if (!strcmp(cmd, "CLS")) handle_cls(client_fd, buffer);
-    else if (!strcmp(cmd, "LST")) handle_lst(client_fd, buffer);
+    else if (!strcmp(cmd, "LST")) handle_lst(client_fd);
     else if (!strcmp(cmd, "SED")) handle_sed(client_fd, buffer);
     else if (!strcmp(cmd, "RID")) handle_rid(client_fd, buffer);
     else if (!strcmp(cmd, "CPS")) handle_cps(client_fd, buffer);

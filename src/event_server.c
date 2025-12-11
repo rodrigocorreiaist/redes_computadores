@@ -5,6 +5,7 @@
 #include "utils.h"
 #include "protocol_udp.h"
 #include "protocol_tcp.h"
+#include "storage.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -17,186 +18,12 @@
 #define BUFFER_SIZE 1024
 #define MAX_CLIENTS 30
 
-// Inicialização das listas globais
-User *user_list = NULL;
-Event *event_list = NULL;
-Reservation *reservation_list = NULL;
-
-int total_events = 0; // Contador para gerar EIDs únicos
 int verbose_mode = 0;
 volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int sig) {
     keep_running = 0;
 }
-
-// --- Funções Auxiliares ---
-
-User* find_user(const char *UID) {
-    User *curr = user_list;
-    while (curr) {
-        if (strcmp(curr->UID, UID) == 0) return curr;
-        curr = curr->next;
-    }
-    return NULL;
-}
-
-Event* find_event(const char *EID) {
-    Event *curr = event_list;
-    while (curr) {
-        if (strcmp(curr->EID, EID) == 0) return curr;
-        curr = curr->next;
-    }
-    return NULL;
-}
-
-// --- Gestão de Utilizadores ---
-
-int register_user(char *UID, char *password) {
-    if (find_user(UID)) return -1; // Já existe
-
-    User *new_user = (User *)malloc(sizeof(User));
-    if (!new_user) return -1;
-
-    strcpy(new_user->UID, UID);
-    strcpy(new_user->password, password);
-    new_user->loggedIn = 1; // Auto-login
-    
-    new_user->next = user_list;
-    user_list = new_user;
-
-    return 0;
-}
-
-int login_user(char *UID, char *password) {
-    User *u = find_user(UID);
-    if (!u) return -1;
-    
-    if (strcmp(u->password, password) == 0) {
-        u->loggedIn = 1;
-        return 0;
-    }
-    return -1;
-}
-
-int logout_user(char *UID, char *password) {
-    User *u = find_user(UID);
-    if (!u) return -1; // UNR
-
-    if (strcmp(u->password, password) != 0) return -2; // WRP
-    if (!u->loggedIn) return -3; // NOK
-    
-    u->loggedIn = 0;
-    return 0;
-}
-
-int unregister_user(char *UID, char *password) {
-    User *curr = user_list;
-    User *prev = NULL;
-
-    while (curr != NULL) {
-        if (strcmp(curr->UID, UID) == 0) {
-            if (strcmp(curr->password, password) != 0) return -2; // WRP
-            if (!curr->loggedIn) return -3; // NOK
-            
-            if (prev == NULL) user_list = curr->next;
-            else prev->next = curr->next;
-            
-            free(curr);
-            return 0;
-        }
-        prev = curr;
-        curr = curr->next;
-    }
-    return -1; // UNR
-}
-
-// --- Gestão de Eventos e Reservas (Skeleton para TCP/UDP) ---
-
-int create_event(char *UID, char *name, char *date, char *time, int attendance_size, const char *filename, size_t filesize) {
-    if (total_events >= 999) return -1;
-
-    Event *new_event = (Event *)malloc(sizeof(Event));
-    if (!new_event) return -1;
-
-    total_events++;
-    snprintf(new_event->EID, sizeof(new_event->EID), "%03d", total_events);
-    strcpy(new_event->name, name);
-    strcpy(new_event->date, date);
-    strcpy(new_event->time, time);
-    new_event->attendance_size = attendance_size;
-    new_event->seats_reserved = 0;
-    strcpy(new_event->owner_UID, UID);
-    new_event->status = 0; // 0: ativo
-    strncpy(new_event->filename, filename, sizeof(new_event->filename) - 1);
-    new_event->filename[sizeof(new_event->filename) - 1] = '\0';
-    new_event->filesize = filesize;
-
-    new_event->next = event_list;
-    event_list = new_event;
-    return total_events; // Return EID as int
-}
-
-char* get_event_filepath(const char *EID) {
-    static char path[300];
-    snprintf(path, sizeof(path), "EVENTS/%s_%s", EID, "file.bin");
-    return path;
-}
-
-int close_event(char *UID, char *EID) {
-    Event *e = find_event(EID);
-    if (!e) return -1; // Event doesn't exist
-    if (strcmp(e->owner_UID, UID) != 0) return -2; // Not owner
-    if (e->status != 0) return -3; // Already closed/sold-out/ended
-    
-    e->status = 1; // 1: fechado
-    return 0;
-}
-
-int reserve_seats(char *UID, char *EID, int num_people) {
-    Event *e = find_event(EID);
-    if (!e) return -1; // Event doesn't exist (NOK)
-    if (e->status == 1) return -2; // Event closed (CLS)
-    
-    // Check if event is past
-    if (is_date_past(e->date, e->time)) return -2; // Treat as closed
-    
-    if (e->status == 2 || e->status == 3) return -3; // Sold out or ended (FUL)
-    if (e->seats_reserved + num_people > e->attendance_size) return -4; // Not enough seats (FUL)
-    
-    // Check if user already has reservation for this event
-    Reservation *r = reservation_list;
-    while (r) {
-        if (strcmp(r->UID, UID) == 0 && strcmp(r->EID, EID) == 0) {
-            // Update existing reservation
-            r->num_people += num_people;
-            e->seats_reserved += num_people;
-            if (e->seats_reserved >= e->attendance_size) e->status = 2; // Mark as sold out
-            return 0;
-        }
-        r = r->next;
-    }
-    
-    // Create new reservation
-    Reservation *new_res = (Reservation *)malloc(sizeof(Reservation));
-    if (!new_res) return -5; // Memory error
-    
-    strcpy(new_res->UID, UID);
-    strcpy(new_res->EID, EID);
-    new_res->num_people = num_people;
-    
-    get_current_date(new_res->reservation_date);
-    
-    new_res->next = reservation_list;
-    reservation_list = new_res;
-    
-    e->seats_reserved += num_people;
-    if (e->seats_reserved >= e->attendance_size) e->status = 2; // Mark as sold out
-    
-    return 0;
-}
-
-// Removed inline protocol handlers; now using protocol_udp.c and protocol_tcp.c
 
 // --- Main ---
 
@@ -213,6 +40,11 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "-v") == 0) {
             verbose_mode = 1;
         }
+    }
+
+    if (storage_init() != 0) {
+        fprintf(stderr, "Failed to initialize storage\n");
+        exit(EXIT_FAILURE);
     }
     
     if ((udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -336,11 +168,6 @@ int main(int argc, char *argv[]) {
     
     close(udp_fd);
     close(tcp_fd);
-    
-    // Cleanup lists
-    while (user_list) { User *t = user_list; user_list = user_list->next; free(t); }
-    while (event_list) { Event *t = event_list; event_list = event_list->next; free(t); }
-    while (reservation_list) { Reservation *t = reservation_list; reservation_list = reservation_list->next; free(t); }
     
     return 0;
 }

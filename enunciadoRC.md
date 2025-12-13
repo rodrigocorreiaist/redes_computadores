@@ -1,326 +1,295 @@
-# Event Reservation Platform — Project Specification
+# Redes de Computadores
+
+## 1º Semestre — P2 — 2025/2026
+**LEIC Alameda**
+
+### Programming using the Sockets Interface
+### Event Reservation
+
+```
+Date: 12 DEC 2025
+```
+
+---
 
 ## 1. Introduction
 
-This project delivers an event‑reservation platform composed of two components:  
-an **Event‑reservation Server (ES)** and a **User Application (User)**. Multiple User
-instances and the ES may run simultaneously across networked machines. The ES runs on
-a machine with a known IP address and port.
+The goal of this project is to implement an **event reservation platform**. Users can create events, cancel or close them, list ongoing events, and make reservations.
 
-The User application supports:
+The project requires implementing:
 
-- **Event management**: create, close, and list personal events.  
-- **Event reservation**: list existing events, reserve seats, and view personal reservations.  
+- an **Event Reservation Server (ES)**
+- a **User Application (User)**
 
-Every registered user may perform both roles. The User interface relies on keyboard
-commands, each resulting in communication with the ES over TCP or UDP depending on the
-operation.
+The **ES** and multiple **User** instances operate simultaneously on different machines connected to the Internet. The **ES** runs on a machine with a known IP address and port.
 
-### Supported User Commands
+The **User** application supports two roles:
 
-- **login** – authenticate or register a user.  
-- **create** – create a new event with metadata and an associated file.  
-- **close** – close an event created by the user.  
-- **myevents** – list events created by the logged‑in user.  
-- **list** – list all active events.  
-- **show** – view details and file description for a selected event.  
-- **reserve** – reserve seats for a selected event.  
-- **myreservations** – list the user’s most recent 50 reservations.  
-- **changePass** – change the account password.  
-- **unregister** – remove the user account from the platform.  
-- **logout** – sign out the current user.  
-- **exit** – terminate the User application.
+1. **Event management** — create, close, and list owned events
+2. **Event reservation** — list events, reserve seats, list reservations
 
-The implementation relies on application‑layer protocols over TCP and UDP using the
-socket interface.
+Any registered user can perform both roles.
+
+---
 
 ## 2. Project Specification
 
 ### 2.1 User Application (User)
 
 Invocation:
-```
+
+```bash
 ./user [-n ESIP] [-p ESport]
 ```
 
-- **ESIP** – IP of the Event‑reservation Server (optional; defaults to localhost).  
-- **ESport** – TCP/UDP port of the ES (optional; defaults to `58000 + GN`).  
+- **ESIP** — IP address of the ES (optional; defaults to localhost)
+- **ESport** — well-known ES port (optional; default: `58000 + GN`)
 
-Once running, the User application can manage events, make reservations, and perform
-account actions.
+On first login, the user ID (**UID**, 6-digit IST number) is registered on the ES.
 
-### User Commands (Detailed)
+---
 
-#### Login
-```
-login UID password
-```
-Sent over UDP. ES validates credentials or registers a new user if UID does not exist.
+### 2.2 User Commands
 
-#### Change Password
-```
-changePass oldPassword newPassword
-```
-Sent via TCP. ES updates the stored password if valid.
+#### Session Management (UDP unless stated)
 
-#### Unregister
-```
-unregister
-```
-Sent via UDP. Removes user account and logs the user out.
+- **login** `UID password`
+Logs in or registers a new user.
 
-#### Logout
-```
-logout
-```
-Sent via UDP. Logs out the user.
+- **changePass** `oldPassword newPassword` (TCP)
 
-#### Exit
-```
-exit
-```
-Local termination; requires prior logout.
+- **unregister**
+Unregisters the logged-in user and logs out.
 
-#### Create Event
-```
-create name event_fname event_date num_attendees
-```
-Sent via TCP. Creates a new event with name, description file, event date/time, and seat
-capacity.
+- **logout**
 
-#### Close Event
-```
-close EID
-```
-Sent via TCP. Closes an event owned by the logged‑in user.
+- **exit**
+Local command. Requires logout first.
 
-#### List Personal Events
-```
-myevents
-```
-Sent via UDP. Lists the user’s events and their status.
+---
 
-#### List All Events
-```
-list
-```
-Sent via TCP. Returns the full list of events.
+#### Event Management
 
-#### Show Event
-```
-show EID
-```
-Sent via TCP. Retrieves full event details and its associated file.
+- **create** `name event_fname event_date num_attendees` (TCP)
+- `name`: up to 10 alphanumeric characters
+- `event_date`: `dd-mm-yyyy hh:mm`
+- `num_attendees`: 10–999
 
-#### Reserve Seats
-```
-reserve EID value
-```
-Sent via TCP. Requests seat reservations.
+- **close** `EID` (TCP)
 
-#### My Reservations
-```
-myreservations
-```
-Sent via UDP. Lists up to the 50 most recent reservations.
+- **myevents** / **mye** (UDP)
 
-Only one command can be active at a time. All ES responses must be displayed clearly to
-the user.
+---
 
-### 2.2 Event‑reservation Server (ES)
+#### Event Discovery & Reservation
+
+- **list** (TCP)
+
+- **show** `EID` (TCP)
+
+- **reserve** `EID value` (TCP)
+
+- **myreservations** / **myr** (UDP)
+Returns up to 50 most recent reservations.
+
+---
+
+Only **one command** may be active at a time.
+**All ES responses must be displayed to the user.**
+
+---
+
+## 3. Event Reservation Server (ES)
 
 Invocation:
-```
+
+```bash
 ./ES [-p ESport] [-v]
 ```
 
-- **ESport** – ES listening port (defaults to `58000 + GN`).  
-- **-v** – verbose mode printing request summaries.
+- **-p ESport** — server port (default: `58000 + GN`)
+- **-v** — verbose mode (logs UID, request type, IP, and port)
 
-The ES runs both a UDP server (user/session management) and a TCP server (file transfer,
-event operations).
+The ES runs:
 
-Requests must be processed immediately when received.
+- a **UDP server** for user/session management
+- a **TCP server** for event management and file transfers
 
-## 3. Communication Protocols Specification
+---
 
-UID values are always 6 digits; EID values are 3 digits.
+## 4. Communication Protocols
 
-### 3.1 UDP Protocol (User ↔ ES)
+### 4.1 User–ES Protocol (UDP)
+
+Messages end with `\n`. Fields are space-separated.
 
 #### Login
+
 ```
 LIN UID password
-```
-Response:
-```
 RLI status
 ```
-Status may be: `OK`, `NOK`, `REG`.
+
+- `OK` — login successful
+- `NOK` — incorrect password
+- `REG` — new user registered
+
+---
 
 #### Logout
+
 ```
 LOU UID password
-```
-Response:
-```
 RLO status
 ```
-Status: `OK`, `NOK`, `UNR`, `WRP`.
+
+Statuses: `OK`, `NOK`, `UNR`, `WRP`
+
+---
 
 #### Unregister
+
 ```
 UNR UID password
-```
-Response:
-```
 RUR status
 ```
 
+Statuses: `OK`, `NOK`, `UNR`, `WRP`
+
+---
+
 #### My Events
+
 ```
 LME UID password
-```
-Response:
-```
 RME status [EID state]*
 ```
-State meanings:  
-1 — open;  
-0 — past;  
-2 — sold out;  
-3 — closed.
+
+Event state:
+
+- `0` — past
+- `1` — future, open
+- `2` — future, sold out
+- `3` — closed
+
+---
 
 #### My Reservations
+
 ```
 LMR UID password
-```
-Response:
-```
 RMR status [EID date value]*
 ```
-Up to 50 reservations returned.
 
-All messages end with `
-`. Any unexpected or invalid message returns `ERR`.
+- Up to 50 most recent reservations
 
-### 3.2 TCP Protocol (User ↔ ES)
+---
+
+### 4.2 User–ES Protocol (TCP)
 
 #### Create Event
+
 ```
-CRE UID password name event_date attendance_size Fname Fsize Fdata
+CRE UID password name event_date attendance_size Fname
+Fsize
+Fdata
 ```
-Response:
+
+Reply:
+
 ```
 RCE status [EID]
 ```
 
+---
+
 #### Close Event
+
 ```
 CLS UID password EID
-```
-Response:
-```
 RCL status
 ```
-Includes statuses like: `OK`, `NOE`, `EOW`, `SLD`, `PST`, `CLO`.
+
+Statuses include: `OK`, `NOK`, `NLG`, `NOE`, `EOW`, `SLD`, `PST`, `CLO`
+
+---
 
 #### List Events
+
 ```
 LST
-```
-Response:
-```
 RLS status [EID name state event_date]*
 ```
 
+---
+
 #### Show Event
+
 ```
 SED EID
-```
-Response:
-```
-RSE status [UID name event_date attendance_size Seats_reserved Fname Fsize Fdata]
+RSE status [UID name event_date attendance_size seats_reserved Fname Fsize Fdata]
 ```
 
+---
+
 #### Reserve Seats
+
 ```
 RID UID password EID people
-```
-Response:
-```
 RRI status [n_seats]
 ```
 
+Statuses: `ACC`, `REJ`, `CLS`, `SLD`, `PST`, `NLG`, `WRP`
+
+---
+
 #### Change Password
+
 ```
 CPS UID oldPassword newPassword
-```
-Response:
-```
 RCP status
 ```
 
-Filenames are limited to 24 characters; maximum file size is 10 MB. All messages end
-with `
-`. Invalid syntax returns `ERR`.
+---
 
-## 4. Development
+## 5. Development
 
-### 4.1 Environment
-Your code must compile and run correctly in the lab environment (LT4 or LT5).
+### 5.1 Environment
 
-### 4.2 Programming Requirements
+Code must compile and run correctly in **LT4** or **LT** labs.
 
-System calls you may need:
+### 5.2 Programming Language
 
-- Input: `fgets()`  
-- String ops: `sscanf()`, `sprintf()`  
-- UDP: `socket()`, `bind()`, `sendto()`, `recvfrom()`, `close()`  
-- TCP client: `socket()`, `connect()`, `write()`, `read()`, `close()`  
-- TCP server: `socket()`, `bind()`, `listen()`, `accept()`, `close()`  
-- Multiplexing: `select()`
+Implementation in **C or C++**, using:
 
-### 4.3 Notes
+- sockets (UDP/TCP)
+- `select()` for multiplexing
+- robust `read()` / `write()` handling
 
-- Handle partial reads/writes.  
-- Never crash on malformed messages.  
-- Report errors cleanly without abrupt termination.
+---
 
-## 5. Bibliography
+## 6. Submission
 
-- Stevens, *Unix Network Programming*, Vol. 1, 2nd Ed., 1998.  
-- Comer, *Computer Networks and Internets*, 2nd Ed., 1999.  
-- Donahoo & Calvert, *TCP/IP Sockets in C*, 2000.  
-- `man` pages  
-- *Code Complete* — http://www.cc2e.com/  
-- http://developerweb.net/viewforum.php?id=70
+### 6.1 Contents
 
-## 6. Project Submission
+- User and ES source code
+- Makefile
+- auto-avaliação Excel file
+- auxiliary files
+- `readme.txt`
 
-### 6.1 Code Requirements
+### 6.2 Packaging
 
-Submit all source code, Makefile, and the auto‑evaluation spreadsheet.  
-`make` must compile all components to the current directory.
+- Single ZIP archive
+- Compiles with `make`
+- Naming: `proj_<group>.zip`
 
-### 6.2 Auxiliary Files
+### 6.3 Deadline
 
-Include any additional required resources plus a `readme.txt`.
+**December 19, 2025 — 23:59**
 
-### 6.3 Submission Method
+---
 
-Send a single ZIP archive to the course instructor no later than **December 19, 2025,
-23:59**.
+## 7. Open Issues
 
-Archive contents:
-
-- Source code  
-- Makefile  
-- Auxiliary files  
-- Auto‑evaluation file  
-
-Archive name format:
-
-```
-proj_<group number>.zip
-```
+Students are encouraged to think about protocol extensions.

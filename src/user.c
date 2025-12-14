@@ -379,13 +379,13 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    // Send command
+    // Send command: CRE UID password name event_date attendance_size Fname Fsize Fdata
+    // event_date format: dd-mm-yyyy hh:mm
     char command[512];
-    snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s %zu\n",
-             logged_uid, logged_pass, name, date, time, capacity, basename, filesize);
-    
-    printf("Debug: Enviando comando (tamanho=%zu): %s", strlen(command), command);
-    printf("Debug: Tamanho do ficheiro: %zu bytes\n", filesize);
+    char event_date[30];
+    snprintf(event_date, sizeof(event_date), "%s %s", date, time);
+    snprintf(command, sizeof(command), "CRE %s %s %s %s %d %s %zu ",
+             logged_uid, logged_pass, name, event_date, capacity, basename, filesize);
     
     if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
         printf("Erro ao enviar comando\n");
@@ -394,9 +394,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    printf("Debug: Comando enviado com sucesso\n");
-    
-    // Send file data
+    // Send file data (Fdata)
     if (send_all_tcp(tcp_fd, file_data, filesize) < 0) {
         printf("Erro ao enviar ficheiro\n");
         close(tcp_fd);
@@ -404,7 +402,13 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    printf("Debug: Ficheiro enviado com sucesso (%zu bytes)\n", filesize);
+    // Send newline to mark end of message
+    if (send_all_tcp(tcp_fd, "\n", 1) < 0) {
+        printf("Erro ao enviar terminador\n");
+        close(tcp_fd);
+        free(file_data);
+        return;
+    }
     free(file_data);
     
     // Set timeout for receiving response
@@ -415,12 +419,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     
     // Receive response
     char response[128];
-    printf("Debug: Aguardando resposta...\n");
     int n = recv_line_tcp(tcp_fd, response, sizeof(response));
-    printf("Debug: recv_line_tcp retornou %d\n", n);
-    if (n > 0) {
-        printf("Debug: Resposta recebida: %s", response);
-    }
     close(tcp_fd);
     
     if (n > 0) {

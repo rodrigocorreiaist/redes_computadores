@@ -1,6 +1,0 @@
-Event Description
-
-This is a sample event poster.
-Date: 25-12-2025
-Time: 18:30
-Venue: Concert Hall

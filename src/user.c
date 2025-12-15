@@ -380,10 +380,8 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     }
 
     char command[512];
-    char event_date[30];
-    snprintf(event_date, sizeof(event_date), "%s %s", date, time);
-    snprintf(command, sizeof(command), "CRE %s %s %s %s %d %s %zu ",
-             logged_uid, logged_pass, name, event_date, capacity, basename, filesize);
+    snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s\n",
+             logged_uid, logged_pass, name, date, time, capacity, basename);
     
     if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
         printf("Erro ao enviar comando\n");
@@ -392,6 +390,15 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
+    char size_line[64];
+    snprintf(size_line, sizeof(size_line), "%zu\n", filesize);
+    if (send_all_tcp(tcp_fd, size_line, strlen(size_line)) < 0) {
+        printf("Erro ao enviar tamanho do ficheiro\n");
+        close(tcp_fd);
+        free(file_data);
+        return;
+    }
+
     if (send_all_tcp(tcp_fd, file_data, filesize) < 0) {
         printf("Erro ao enviar ficheiro\n");
         close(tcp_fd);

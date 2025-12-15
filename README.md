@@ -210,6 +210,27 @@ exit            - Sair
 
 # Ou usar hostname
 ./user -n tejo.tecnico.ulisboa.pt -p 58000
+
+## Runner de testes (Python)
+
+Existe um runner local para executar os scripts em `SCRIPTS_25-26/` contra o teu `./event_server`.
+
+```bash
+./tools/run_tests.py --scripts 1 --reset-db
+./tools/run_tests.py --scripts 1 2 3 4
+./tools/run_tests.py --scripts 5 6 7 8 --event-data-dir Event_Data
+```
+
+Opções úteis:
+
+```bash
+./tools/run_tests.py --scripts 1 --no-build
+./tools/run_tests.py --scripts 1 --no-server
+./tools/run_tests.py --scripts 1 --server-verbose
+./tools/run_tests.py --scripts 21 22 23 24 --jobs 4
+```
+
+Os outputs (stdin traduzido + stdout do `user` + log do servidor) ficam em `test_reports/<timestamp>/`.
 ```
 
 ## Formato de Dados

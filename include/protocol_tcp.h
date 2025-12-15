@@ -7,4 +7,4 @@
 
 void process_tcp_command(int client_fd, int verbose_mode);
 
-#endif // PROTOCOL_TCP_H
+#endif

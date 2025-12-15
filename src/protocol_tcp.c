@@ -12,25 +12,28 @@
 #include "storage.h"
 
 #define BUFFER_SIZE 1024
-#define MAX_FILE_SIZE 10485760  // 10MB
-
-// Protocol: CRE UID pass name date time cap filename filesize\n <binary>
-// Response: RCE OK EID\n | RCE NOK\n | RCE ERR\n
+#define MAX_FILE_SIZE 10485760
 static void handle_cre(int client_fd, const char *buffer) {
     char UID[7], password[9], name[11], date[11], time[6], filename[256];
     int capacity;
     size_t filesize;
+
+    int parsed = sscanf(buffer, "CRE %6s %8s %10s %10s %5s %d %255s",
+                        UID, password, name, date, time, &capacity, filename);
     
-    // Parse command line
-    int parsed = sscanf(buffer, "CRE %6s %8s %10s %10s %5s %d %255s %zu",
-                        UID, password, name, date, time, &capacity, filename, &filesize);
-    
-    if (parsed != 8) {
+    if (parsed != 7) {
         send_all_tcp(client_fd, "RCE ERR\n", 8);
         return;
     }
-    
-    // Validate all fields
+
+    char size_line[64];
+    int n = recv_line_tcp(client_fd, size_line, sizeof(size_line));
+    if (n <= 0) {
+        send_all_tcp(client_fd, "RCE ERR\n", 8);
+        return;
+    }
+    filesize = (size_t)strtoull(size_line, NULL, 10);
+
     if (!validate_uid(UID) || !validate_password(password) || 
         !validate_event_name(name) || !validate_date(date) || 
         !validate_time(time) || capacity < 10 || capacity > 999 ||
@@ -38,20 +41,17 @@ static void handle_cre(int client_fd, const char *buffer) {
         send_all_tcp(client_fd, "RCE ERR\n", 8);
         return;
     }
-    
-    // Check user exists and password is correct
+
     if (!storage_user_exists(UID) || !storage_check_password(UID, password)) {
         send_all_tcp(client_fd, "RCE NOK\n", 8);
         return;
     }
-    
-    // Check if user is logged in
+
     if (!storage_is_logged_in(UID)) {
         send_all_tcp(client_fd, "RCE NLG\n", 8);
         return;
     }
-    
-    // Receive binary file data
+
     char *file_data = (char *)malloc(filesize);
     if (!file_data) {
         send_all_tcp(client_fd, "RCE NOK\n", 8);
@@ -63,8 +63,10 @@ static void handle_cre(int client_fd, const char *buffer) {
         send_all_tcp(client_fd, "RCE ERR\n", 8);
         return;
     }
-    
-    // Create event
+
+    char nl;
+    (void)recv(client_fd, &nl, 1, MSG_DONTWAIT);
+
     char eid[4];
     if (storage_create_event(UID, name, date, time, capacity, filename, file_data, filesize, eid) != 0) {
         free(file_data);
@@ -78,8 +80,6 @@ static void handle_cre(int client_fd, const char *buffer) {
     send_all_tcp(client_fd, response, strlen(response));
 }
 
-// Protocol: CLS UID pass EID
-// Response: RCL OK\n | RCL NOK\n | RCL EOW\n | RCL CLO\n | RCL ERR\n
 static void handle_cls(int client_fd, const char *buffer) {
     char UID[7], password[9], EID[4];
     
@@ -110,13 +110,11 @@ static void handle_cls(int client_fd, const char *buffer) {
     
     int res = storage_close_event(UID, EID);
     if (res == 0) send_all_tcp(client_fd, "RCL OK\n", 7);
-    else if (res == -1) send_all_tcp(client_fd, "RCL NOE\n", 8); // Event not found
-    else if (res == -2) send_all_tcp(client_fd, "RCL EOW\n", 8); // Not owner
-    else send_all_tcp(client_fd, "RCL CLO\n", 8); // Already closed (or other state)
+    else if (res == -1) send_all_tcp(client_fd, "RCL NOE\n", 8);
+    else if (res == -2) send_all_tcp(client_fd, "RCL EOW\n", 8);
+    else send_all_tcp(client_fd, "RCL CLO\n", 8);
 }
 
-// Protocol: LST
-// Response: RLS OK [EID name state date]*\n | RLS NOK\n
 static void handle_lst(int client_fd) {
     char list_buffer[60000];
     if (storage_list_events(list_buffer, sizeof(list_buffer)) != 0) {
@@ -135,8 +133,6 @@ static void handle_lst(int client_fd) {
     }
 }
 
-// Protocol: SED EID
-// Response: RSE OK UID name date time cap reserved filename filesize\n <binary>
 static void handle_sed(int client_fd, const char *buffer) {
     char EID[4];
     if (sscanf(buffer, "SED %3s", EID) != 1) {
@@ -171,9 +167,14 @@ static void handle_sed(int client_fd, const char *buffer) {
     }
     
     char response[512];
-    // Spec: RSE status [UID name event_date attendance_size Seats_reserved Fname Fsize Fdata]
-    snprintf(response, sizeof(response), "RSE OK %s %s %s %s %d %d %s %zu ", 
-             uid, name, date, time, attendance, reserved, fname, fsize);
+    int state;
+    if (is_date_past(date, time)) state = 0;
+    else if (storage_is_event_closed(EID)) state = 3;
+    else if (reserved >= attendance) state = 2;
+    else state = 1;
+
+    snprintf(response, sizeof(response), "RSE OK %s %s %s %s %d %d %s %zu %d ",
+             uid, name, date, time, attendance, reserved, fname, fsize, state);
              
     send_all_tcp(client_fd, response, strlen(response));
     send_all_tcp(client_fd, file_data, fsize);
@@ -182,8 +183,6 @@ static void handle_sed(int client_fd, const char *buffer) {
     free(file_data);
 }
 
-// Protocol: RID UID pass EID num_seats
-// Response: RRI OK\n | RRI NOK\n | RRI ERR\n
 static void handle_rid(int client_fd, const char *buffer) {
     char UID[7], password[9], EID[4];
     int num_seats;
@@ -210,14 +209,12 @@ static void handle_rid(int client_fd, const char *buffer) {
     
     int res = storage_reserve(UID, EID, num_seats);
     if (res == 0) send_all_tcp(client_fd, "RRI OK\n", 7);
-    else if (res == -1) send_all_tcp(client_fd, "RRI NOK\n", 8); // Event not found
-    else if (res == -2) send_all_tcp(client_fd, "RRI CPT\n", 8); // Closed/Past
-    else if (res == -3) send_all_tcp(client_fd, "RRI FUL\n", 8); // Full
+    else if (res == -1) send_all_tcp(client_fd, "RRI NOK\n", 8);
+    else if (res == -2) send_all_tcp(client_fd, "RRI CPT\n", 8);
+    else if (res == -3) send_all_tcp(client_fd, "RRI FUL\n", 8);
     else send_all_tcp(client_fd, "RRI ERR\n", 8);
 }
 
-// Protocol: CPS UID old_pass new_pass
-// Response: RCP OK\n | RCP NOK\n | RCP ERR\n
 static void handle_cps(int client_fd, const char *buffer) {
     char UID[7], old_pass[9], new_pass[9];
     
@@ -254,9 +251,8 @@ static void handle_cps(int client_fd, const char *buffer) {
 }
 
 void process_tcp_command(int client_fd, int verbose_mode) {
-    char buffer[8192];  // Larger buffer for commands with file metadata
-    
-    // Read command line (up to newline)
+    char buffer[8192];
+
     int n = recv_line_tcp(client_fd, buffer, sizeof(buffer));
     if (n <= 0) { 
         close(client_fd); 
@@ -270,8 +266,7 @@ void process_tcp_command(int client_fd, int verbose_mode) {
         close(client_fd);
         return;
     }
-    
-    // Extract parameter (UID or EID) for verbose logging
+
     if (strlen(buffer) > 4) {
         sscanf(buffer + 4, "%6s", param);
     }

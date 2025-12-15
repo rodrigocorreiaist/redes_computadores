@@ -9,4 +9,4 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
                          struct sockaddr_in *client_addr, socklen_t addr_len,
                          int verbose_mode);
 
-#endif // PROTOCOL_UDP_H
+#endif

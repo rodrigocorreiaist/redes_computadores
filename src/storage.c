@@ -9,7 +9,7 @@
 #include <time.h>
 #include <ctype.h>
 #include "storage.h"
-#include "utils.h" // For is_date_past
+#include "utils.h"
 
 #define USERS_DIR "USERS"
 #define EVENTS_DIR "EVENTS"
@@ -19,12 +19,10 @@
 #define FNAME_MAX_LEN 255
 #define RES_NAME_MAX_LEN 64
 
-// Local fallback comparator mimicking alphasort
 static int dirent_alphasort(const struct dirent **a, const struct dirent **b) {
     return strcoll((*a)->d_name, (*b)->d_name);
 }
 
-// Helper to create directory if not exists
 static int ensure_dir(const char *path) {
     struct stat st = {0};
     if (stat(path, &st) == -1) {
@@ -46,7 +44,7 @@ int storage_user_exists(const char *uid) {
 }
 
 int storage_register_user(const char *uid, const char *pass) {
-    if (storage_user_exists(uid)) return -1; // Already exists
+    if (storage_user_exists(uid)) return -1;
 
     char dir_path[PATH_MAX_LEN];
     snprintf(dir_path, sizeof(dir_path), "%s/%.*s", USERS_DIR, UID_LEN, uid);
@@ -60,7 +58,6 @@ int storage_register_user(const char *uid, const char *pass) {
     fprintf(fp, "%s", pass);
     fclose(fp);
 
-    // Create subdirectories
     char created_path[PATH_MAX_LEN];
     snprintf(created_path, sizeof(created_path), "%s/%.*s/CREATED", USERS_DIR, UID_LEN, uid);
     ensure_dir(created_path);
@@ -77,11 +74,10 @@ int storage_check_password(const char *uid, const char *pass) {
     snprintf(path, sizeof(path), "%s/%.*s/%.*spass.txt", USERS_DIR, UID_LEN, uid, UID_LEN, uid);
     
     FILE *fp = fopen(path, "r");
-    if (!fp) return 0; // User not found or error
+    if (!fp) return 0;
     
     char stored_pass[32];
     if (fgets(stored_pass, sizeof(stored_pass), fp)) {
-        // Remove newline if present
         stored_pass[strcspn(stored_pass, "\n")] = 0;
         fclose(fp);
         return (strcmp(stored_pass, pass) == 0);
@@ -95,7 +91,7 @@ int storage_login_user(const char *uid) {
     snprintf(path, sizeof(path), "%s/%.*s/%.*slogin.txt", USERS_DIR, UID_LEN, uid, UID_LEN, uid);
     FILE *fp = fopen(path, "w");
     if (!fp) return -1;
-    fprintf(fp, "Logged in"); // Content doesn't matter
+    fprintf(fp, "Logged in");
     fclose(fp);
     return 0;
 }
@@ -115,15 +111,12 @@ int storage_is_logged_in(const char *uid) {
 
 int storage_unregister_user(const char *uid) {
     char path[PATH_MAX_LEN];
-    // Remove pass.txt
     snprintf(path, sizeof(path), "%s/%.*s/%.*spass.txt", USERS_DIR, UID_LEN, uid, UID_LEN, uid);
     unlink(path);
-    
-    // Remove login.txt
+
     snprintf(path, sizeof(path), "%s/%.*s/%.*slogin.txt", USERS_DIR, UID_LEN, uid, UID_LEN, uid);
     unlink(path);
-    
-    // Directories CREATED and RESERVED remain as per spec
+
     return 0;
 }
 
@@ -137,8 +130,6 @@ int storage_change_password(const char *uid, const char *new_pass) {
     fclose(fp);
     return 0;
 }
-
-// --- Event Helpers ---
 
 static int get_next_eid(char *eid_out) {
     struct dirent **namelist;
@@ -170,7 +161,6 @@ int storage_create_event(const char *uid, const char *name, const char *date, co
     snprintf(event_dir, sizeof(event_dir), "%s/%.*s", EVENTS_DIR, EID_LEN, eid_out);
     if (ensure_dir(event_dir) != 0) return -1;
 
-    // START file
     char start_path[PATH_MAX_LEN];
     snprintf(start_path, sizeof(start_path), "%s/%.*s/START%.*s.txt", EVENTS_DIR, EID_LEN, eid_out, EID_LEN, eid_out);
     FILE *fp = fopen(start_path, "w");
@@ -178,7 +168,6 @@ int storage_create_event(const char *uid, const char *name, const char *date, co
     fprintf(fp, "%s %s %s %d %s %s", uid, name, fname, attendance, date, time);
     fclose(fp);
 
-    // RES file
     char res_path[PATH_MAX_LEN];
     snprintf(res_path, sizeof(res_path), "%s/%.*s/RES%.*s.txt", EVENTS_DIR, EID_LEN, eid_out, EID_LEN, eid_out);
     fp = fopen(res_path, "w");
@@ -186,7 +175,6 @@ int storage_create_event(const char *uid, const char *name, const char *date, co
     fprintf(fp, "0");
     fclose(fp);
 
-    // DESCRIPTION dir and file
     char desc_dir[PATH_MAX_LEN];
     snprintf(desc_dir, sizeof(desc_dir), "%s/%.*s/DESCRIPTION", EVENTS_DIR, EID_LEN, eid_out);
     ensure_dir(desc_dir);
@@ -198,16 +186,14 @@ int storage_create_event(const char *uid, const char *name, const char *date, co
     fwrite(fdata, 1, fsize, fp);
     fclose(fp);
 
-    // RESERVATIONS dir
     char reservations_dir[PATH_MAX_LEN];
     snprintf(reservations_dir, sizeof(reservations_dir), "%s/%.*s/RESERVATIONS", EVENTS_DIR, EID_LEN, eid_out);
     ensure_dir(reservations_dir);
 
-    // Add to user's CREATED dir
     char user_created_path[PATH_MAX_LEN];
     snprintf(user_created_path, sizeof(user_created_path), "%s/%.*s/CREATED/%.*s.txt", USERS_DIR, UID_LEN, uid, EID_LEN, eid_out);
     fp = fopen(user_created_path, "w");
-    if (fp) fclose(fp); // Empty file
+    if (fp) fclose(fp);
 
     return 0;
 }
@@ -219,12 +205,11 @@ int storage_is_event_closed(const char *eid) {
 }
 
 int storage_close_event(const char *uid, const char *eid) {
-    // Check ownership
     char owner[7];
-    if (storage_get_event_owner(eid, owner) != 0) return -1; // Event not found
-    if (strcmp(owner, uid) != 0) return -2; // Not owner
+    if (storage_get_event_owner(eid, owner) != 0) return -1;
+    if (strcmp(owner, uid) != 0) return -2;
 
-    if (storage_is_event_closed(eid)) return 0; // Already closed
+    if (storage_is_event_closed(eid)) return 0;
 
     char path[PATH_MAX_LEN];
     snprintf(path, sizeof(path), "%s/%.*s/END%.*s.txt", EVENTS_DIR, EID_LEN, eid, EID_LEN, eid);
@@ -261,7 +246,6 @@ int storage_get_event_owner(const char *eid, char *uid_out) {
     return -1;
 }
 
-// Helper to read current reservations count
 static int get_reservations_count(const char *eid) {
     char path[PATH_MAX_LEN];
     snprintf(path, sizeof(path), "%s/%.*s/RES%.*s.txt", EVENTS_DIR, EID_LEN, eid, EID_LEN, eid);
@@ -284,37 +268,32 @@ static void update_reservations_count(const char *eid, int new_total) {
 }
 
 int storage_reserve(const char *uid, const char *eid, int num_seats) {
-    // Check if event exists and get details
     char start_path[PATH_MAX_LEN];
     snprintf(start_path, sizeof(start_path), "%s/%.*s/START%.*s.txt", EVENTS_DIR, EID_LEN, eid, EID_LEN, eid);
     FILE *fp = fopen(start_path, "r");
-    if (!fp) return -1; // Event not found
+    if (!fp) return -1;
 
     char owner[7], name[100], fname[100], date[11], time_str[6];
     int attendance;
     fscanf(fp, "%s %s %s %d %s %s", owner, name, fname, &attendance, date, time_str);
     fclose(fp);
 
-    // Check if closed
-    if (storage_is_event_closed(eid)) return -2; // Closed
+    if (storage_is_event_closed(eid)) return -2;
 
-    // Check date
     if (is_date_past(date, time_str)) {
-        // Close event automatically
         char end_path[PATH_MAX_LEN];
         snprintf(end_path, sizeof(end_path), "%s/%.*s/END%.*s.txt", EVENTS_DIR, EID_LEN, eid, EID_LEN, eid);
         FILE *end_fp = fopen(end_path, "w");
         if (end_fp) {
-            fprintf(end_fp, "%s %s:00", date, time_str); // Use event date as end date
+            fprintf(end_fp, "%s %s:00", date, time_str);
             fclose(end_fp);
         }
-        return -2; // Closed
+        return -2;
     }
 
     int current_res = get_reservations_count(eid);
-    if (current_res + num_seats > attendance) return -3; // Full
+    if (current_res + num_seats > attendance) return -3;
 
-    // Create reservation file
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     char timestamp[32];
@@ -331,7 +310,6 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
             t->tm_mday, t->tm_mon + 1, t->tm_year + 1900,
             t->tm_hour, t->tm_min, t->tm_sec);
 
-    // Write to EVENTS/.../RESERVATIONS
     char event_res_path[PATH_MAX_LEN];
     snprintf(event_res_path, sizeof(event_res_path), "%s/%.*s/RESERVATIONS/%.*s", EVENTS_DIR, EID_LEN, eid, RES_NAME_MAX_LEN, res_filename);
     fp = fopen(event_res_path, "w");
@@ -339,7 +317,6 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
     fprintf(fp, "%s", res_content);
     fclose(fp);
 
-    // Write to USERS/.../RESERVED
     char user_res_path[PATH_MAX_LEN];
     snprintf(user_res_path, sizeof(user_res_path), "%s/%.*s/RESERVED/%.*s", USERS_DIR, UID_LEN, uid, RES_NAME_MAX_LEN, res_filename);
     fp = fopen(user_res_path, "w");
@@ -378,12 +355,10 @@ int storage_list_events(char *buffer, size_t max_len) {
 
                 int closed = storage_is_event_closed(eid);
                 int current_res = get_reservations_count(eid);
-                int state = 1; // Open
-                if (closed) state = 3; // Closed
-                else if (current_res >= attendance) state = 2; // Sold out
-                else if (is_date_past(date, time_str)) {
-                     state = 0; 
-                }
+                int state = 1;
+                if (is_date_past(date, time_str)) state = 0;
+                else if (closed) state = 3;
+                else if (current_res >= attendance) state = 2;
 
                 char entry[200];
                 snprintf(entry, sizeof(entry), " %s %s %d %s %s", eid, name, state, date, time_str);
@@ -414,7 +389,6 @@ int storage_list_my_events(const char *uid, char *buffer, size_t max_len) {
             strncpy(eid, namelist[i]->d_name, 3);
             eid[3] = '\0';
 
-            // Get state
             char start_path[PATH_MAX_LEN];
             snprintf(start_path, sizeof(start_path), "%s/%.*s/START%.*s.txt", EVENTS_DIR, EID_LEN, eid, EID_LEN, eid);
             FILE *fp = fopen(start_path, "r");
@@ -426,10 +400,10 @@ int storage_list_my_events(const char *uid, char *buffer, size_t max_len) {
 
                 int closed = storage_is_event_closed(eid);
                 int current_res = get_reservations_count(eid);
-                int state = 1; // Open
-                if (closed) state = 3; // Closed
-                else if (current_res >= attendance) state = 2; // Sold out
-                else if (is_date_past(date, time_str)) state = 0; // Past
+                int state = 1;
+                if (is_date_past(date, time_str)) state = 0;
+                else if (closed) state = 3;
+                else if (current_res >= attendance) state = 2;
 
                 char entry[50];
                 snprintf(entry, sizeof(entry), " %s %d", eid, state);
@@ -455,11 +429,6 @@ int storage_list_my_reservations(const char *uid, char *buffer, size_t max_len) 
     buffer[0] = '\0';
     int count = 0;
 
-    // Iterate in reverse to get most recent? 
-    // Spec says "most recent 50 reservations".
-    // Filenames are R-UID-YYYYMMDDHHMMSS.txt. dirent_alphasort keeps date order.
-    // So we should iterate from end to beginning.
-    
     for (int i = n - 1; i >= 0; i--) {
         if (namelist[i]->d_name[0] != '.') {
             if (count >= 50) {
@@ -470,10 +439,10 @@ int storage_list_my_reservations(const char *uid, char *buffer, size_t max_len) 
             char path[PATH_MAX_LEN];
             size_t dir_len = strlen(dir_path);
             size_t name_len = strnlen(namelist[i]->d_name, sizeof(namelist[i]->d_name));
-            size_t needed = dir_len + 1 + name_len + 1; // dir + '/' + name + '\0'
+            size_t needed = dir_len + 1 + name_len + 1;
             if (needed >= sizeof(path)) {
                 free(namelist[i]);
-                continue; // Skip overly long path
+                continue;
             }
             memcpy(path, dir_path, dir_len);
             path[dir_len] = '/';
@@ -499,7 +468,6 @@ int storage_list_my_reservations(const char *uid, char *buffer, size_t max_len) 
                                 strncpy(found_eid, eventlist[j]->d_name, 3);
                                 found_eid[3] = '\0';
                                 free(eventlist[j]);
-                                // Free remaining
                                 for (int k = j + 1; k < num_events; k++) free(eventlist[k]);
                                 break;
                             }
@@ -511,7 +479,7 @@ int storage_list_my_reservations(const char *uid, char *buffer, size_t max_len) 
                 
                 if (found_eid[0] != '\0') {
                     char entry[100];
-                    snprintf(entry, sizeof(entry), " %s %s %s %d", found_eid, r_date, r_time, r_num);
+                    snprintf(entry, sizeof(entry), " %s %s %d", found_eid, r_date, r_num);
                     if (strlen(buffer) + strlen(entry) < max_len) {
                         strcat(buffer, entry);
                         count++;
@@ -539,7 +507,6 @@ int storage_get_event_details(const char *eid, char *uid_out, char *name_out, ch
 
     *reserved_out = get_reservations_count(eid);
 
-    // Get file size
     char file_path[PATH_MAX_LEN];
     snprintf(file_path, sizeof(file_path), "%s/%.*s/DESCRIPTION/%.*s", EVENTS_DIR, EID_LEN, eid, FNAME_MAX_LEN, fname_out);
     struct stat st;
@@ -548,8 +515,7 @@ int storage_get_event_details(const char *eid, char *uid_out, char *name_out, ch
     } else {
         *fsize_out = 0;
     }
-    
-    // Check if we need to close it (lazy close)
+
     if (!storage_is_event_closed(eid) && is_date_past(date_out, time_out)) {
         char end_path[PATH_MAX_LEN];
         snprintf(end_path, sizeof(end_path), "%s/%.*s/END%.*s.txt", EVENTS_DIR, EID_LEN, eid, EID_LEN, eid);

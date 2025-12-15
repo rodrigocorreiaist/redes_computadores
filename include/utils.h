@@ -3,7 +3,6 @@
 
 #include <stddef.h>
 
-// Funções de validação
 int validate_uid(const char *uid);
 int validate_password(const char *password);
 int validate_event_name(const char *name);
@@ -14,9 +13,8 @@ int is_date_past(const char *date, const char *time);
 void get_current_date(char *buffer);
 void show_reply(const char *reply);
 
-// TCP I/O robustas (loops até byte count completo)
 int send_all_tcp(int fd, const void *buf, size_t len);
 int recv_all_tcp(int fd, void *buf, size_t len);
 int recv_line_tcp(int fd, char *buf, size_t maxlen);
 
-#endif // UTILS_H
+#endif

@@ -25,8 +25,6 @@ void handle_signal(int sig) {
     keep_running = 0;
 }
 
-// --- Main ---
-
 int main(int argc, char *argv[]) {
     int udp_fd, tcp_fd;
     struct sockaddr_in server_addr, client_addr;
@@ -82,10 +80,8 @@ int main(int argc, char *argv[]) {
     }
     
     printf("Servidor iniciado na porta %s%s\n", port, verbose_mode ? " (verbose)" : "");
-    
-    // Ignore SIGPIPE to prevent crash on client disconnect
+
     signal(SIGPIPE, SIG_IGN);
-    // Handle SIGINT for graceful shutdown
     signal(SIGINT, handle_signal);
     
     fd_set read_fds;
@@ -99,8 +95,7 @@ int main(int argc, char *argv[]) {
         FD_SET(tcp_fd, &read_fds);
         
         max_fd = (udp_fd > tcp_fd) ? udp_fd : tcp_fd;
-        
-        // Add child sockets to set
+
         for (int i = 0; i < MAX_CLIENTS; i++) {
             int sd = client_socket[i];
             if (sd > 0) FD_SET(sd, &read_fds);
@@ -119,24 +114,20 @@ int main(int argc, char *argv[]) {
         }
         
         if (activity == 0) {
-            // Timeout event - can be used for maintenance tasks
             continue;
         }
-        
-        // Handle UDP
+
         if (FD_ISSET(udp_fd, &read_fds)) {
             ssize_t n = recvfrom(udp_fd, buffer, BUFFER_SIZE - 1, 0,
                                 (struct sockaddr*)&client_addr, &addr_len);
             if (n > 0) process_udp_command(udp_fd, buffer, n, &client_addr, addr_len, verbose_mode);
         }
-        
-        // Handle New TCP Connections
+
         if (FD_ISSET(tcp_fd, &read_fds)) {
             int new_socket = accept(tcp_fd, (struct sockaddr*)&client_addr, &addr_len);
             if (new_socket >= 0) {
                 if (verbose_mode) printf("New connection accepted\n");
-                
-                // Add to array
+
                 int added = 0;
                 for (int i = 0; i < MAX_CLIENTS; i++) {
                     if (client_socket[i] == 0) {
@@ -152,15 +143,11 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        
-        // Handle IO on TCP Clients
+
         for (int i = 0; i < MAX_CLIENTS; i++) {
             int sd = client_socket[i];
             if (sd > 0 && FD_ISSET(sd, &read_fds)) {
-                // Process command (blocking for now, but allows other clients to connect first)
                 process_tcp_command(sd, verbose_mode);
-                
-                // Socket is closed inside process_tcp_command, so we just clear the slot
                 client_socket[i] = 0;
             }
         }

@@ -34,7 +34,6 @@ int validate_event_name(const char *name) {
 }
 
 int validate_date(const char *date) {
-    // Format: dd-mm-yyyy
     if (strlen(date) != 10) return 0;
     if (date[2] != '-' || date[5] != '-') return 0;
     for (int i = 0; i < 10; i++) {
@@ -47,11 +46,9 @@ int validate_date(const char *date) {
     
     if (m < 1 || m > 12) return 0;
     if (d < 1 || d > 31) return 0;
-    
-    // Check days in month
+
     int days_in_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    
-    // Leap year check
+
     if ((y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)) {
         days_in_month[2] = 29;
     }
@@ -62,7 +59,6 @@ int validate_date(const char *date) {
 }
 
 int validate_time(const char *time) {
-    // Format: hh:mm
     if (strlen(time) != 5) return 0;
     if (time[2] != ':') return 0;
     for (int i = 0; i < 5; i++) {
@@ -87,41 +83,33 @@ int validate_eid(const char *eid) {
 }
 
 int is_date_past(const char *date, const char *time_str) {
-    // date format: DD-MM-YYYY
-    // time format: HH:MM
-    
     int d, m, y, h, min;
     if (sscanf(date, "%d-%d-%d", &d, &m, &y) != 3) return 0;
     if (sscanf(time_str, "%d:%d", &h, &min) != 2) return 0;
     
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
-    
-    // Compare year
+
     int current_year = t->tm_year + 1900;
     if (y < current_year) return 1;
     if (y > current_year) return 0;
-    
-    // Compare month
+
     int current_month = t->tm_mon + 1;
     if (m < current_month) return 1;
     if (m > current_month) return 0;
-    
-    // Compare day
+
     int current_day = t->tm_mday;
     if (d < current_day) return 1;
     if (d > current_day) return 0;
-    
-    // Compare hour
+
     int current_hour = t->tm_hour;
     if (h < current_hour) return 1;
     if (h > current_hour) return 0;
-    
-    // Compare minute
+
     int current_min = t->tm_min;
     if (min < current_min) return 1;
-    
-    return 0; // Not past (future or present)
+
+    return 0;
 }
 
 void get_current_date(char *buffer) {
@@ -130,7 +118,6 @@ void get_current_date(char *buffer) {
     sprintf(buffer, "%02d-%02d-%04d", t->tm_mday, t->tm_mon + 1, t->tm_year + 1900);
 }
 
-// TCP I/O robustas - loops até byte count completo
 int send_all_tcp(int fd, const void *buf, size_t len) {
     const char *ptr = (const char *)buf;
     while (len > 0) {
@@ -167,15 +154,13 @@ int recv_line_tcp(int fd, char *buf, size_t maxlen) {
         if (n <= 0) {
             if (n < 0 && errno == EINTR) continue;
             if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                // Timeout occurred
                 if (i > 0) {
-                    // Partial data received, return what we have
                     buf[i] = '\0';
                     return (int)i;
                 }
-                return -2; // Timeout with no data
+                return -2;
             }
-            return -1; // Other error or connection closed
+            return -1;
         }
         buf[i++] = c;
         if (c == '\n') break;
@@ -185,14 +170,13 @@ int recv_line_tcp(int fd, char *buf, size_t maxlen) {
 }
 
 static int has_token(const char *reply, const char *token) {
-    // tokens are separated by spaces/newlines; ensure full match
     const char *p = reply;
     size_t len = strlen(token);
     while ((p = strstr(p, token))) {
         int start_ok = (p == reply) || isspace((unsigned char)*(p - 1));
         int end_ok = isspace((unsigned char)p[len]) || p[len] == '\0';
         if (start_ok && end_ok) return 1;
-        p += len; // continue searching
+        p += len;
     }
     return 0;
 }

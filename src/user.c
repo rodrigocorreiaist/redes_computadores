@@ -11,19 +11,39 @@
 #define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
 
-// Função para enviar comando UDP e receber resposta
+static int recv_token_tcp(int fd, char *out, size_t out_sz) {
+    if (out_sz == 0) return -1;
+
+    size_t i = 0;
+    char c;
+
+    for (;;) {
+        ssize_t n = read(fd, &c, 1);
+        if (n <= 0) return -1;
+        if (c != ' ' && c != '\n' && c != '\r' && c != '\t') break;
+    }
+
+    for (;;) {
+        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') break;
+        if (i + 1 < out_sz) out[i++] = c;
+        ssize_t n = read(fd, &c, 1);
+        if (n <= 0) break;
+    }
+
+    out[i] = '\0';
+    return 0;
+}
+
 int send_udp_command(int udp_fd, struct sockaddr_in *server_addr, const char *command, char *response) {
     socklen_t addr_len = sizeof(*server_addr);
-    
-    // Envia comando
+
     ssize_t sent = sendto(udp_fd, command, strlen(command), 0,
                           (struct sockaddr*)server_addr, addr_len);
     if (sent < 0) {
         perror("Erro ao enviar comando UDP");
         return -1;
     }
-    
-    // Recebe resposta
+
     ssize_t received = recvfrom(udp_fd, response, BUFFER_SIZE - 1, 0,
                                 (struct sockaddr*)server_addr, &addr_len);
     if (received < 0) {
@@ -35,9 +55,8 @@ int send_udp_command(int udp_fd, struct sockaddr_in *server_addr, const char *co
     return 0;
 }
 
-// Comando: login
 void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
-    char UID[10], password[20]; // Buffers maiores para detectar erros
+    char UID[10], password[20];
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -46,22 +65,18 @@ void cmd_login(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, ch
         return;
     }
     
-    // Valida UID
     if (!validate_uid(UID)) {
         printf("Erro: UID deve ter exatamente 6 dígitos\n");
         return;
     }
-    
-    // Valida password
+
     if (!validate_password(password)) {
         printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
         return;
     }
-    
-    // Formata comando
+
     snprintf(command, BUFFER_SIZE, "LIN %s %s\n", UID, password);
-    
-    // Envia e recebe
+
     if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
         show_reply(response);
         if (strncmp(response, "RLI OK", 6) == 0 || strncmp(response, "RLI REG", 7) == 0) {
@@ -94,7 +109,7 @@ void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, c
 }
 
 void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
-    char password[20]; // Buffer maior para detectar erros
+    char password[20];
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -108,7 +123,6 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
         return;
     }
     
-    // Valida password
     if (!validate_password(password)) {
         printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
         return;
@@ -184,20 +198,17 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
         return;
     }
     
-    // Create TCP socket
     if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Erro ao criar socket TCP");
         return;
     }
-    
-    // Connect to server
+
     if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
         perror("Erro ao conectar ao servidor TCP");
         close(tcp_fd);
         return;
     }
-    
-    // Send command: CPS UID oldPassword newPassword
+
     snprintf(command, BUFFER_SIZE, "CPS %s %s %s\n", logged_uid, oldPassword, newPassword);
     ssize_t sent = write(tcp_fd, command, strlen(command));
     if (sent < 0) {
@@ -205,8 +216,7 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
         close(tcp_fd);
         return;
     }
-    
-    // Receive response
+
     ssize_t received = read(tcp_fd, response, BUFFER_SIZE - 1);
     if (received < 0) {
         perror("Erro ao receber resposta TCP");
@@ -216,8 +226,7 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
     
     response[received] = '\0';
     close(tcp_fd);
-    
-    // Display response
+
     if (strncmp(response, "RCP OK", 6) == 0) {
         printf("Password alterada com sucesso\n");
         strcpy(logged_pass, newPassword);
@@ -240,20 +249,17 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in,
     int tcp_fd;
     ssize_t n;
     
-    // Create TCP socket
     if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Erro ao criar socket TCP");
         return;
     }
-    
-    // Connect to server
+
     if (connect(tcp_fd, (struct sockaddr*)server_addr, sizeof(*server_addr)) < 0) {
         perror("Erro ao conectar ao servidor TCP");
         close(tcp_fd);
         return;
     }
-    
-    // Send command: LST\n
+
     snprintf(command, BUFFER_SIZE, "LST\n");
 
     ssize_t sent = write(tcp_fd, command, strlen(command));
@@ -263,7 +269,6 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in,
         return;
     }
     
-    // Receive response
     n = read(tcp_fd, buf, sizeof(buf) - 1);
     if (n < 0) {
         perror("Erro ao receber resposta TCP");
@@ -281,9 +286,7 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in,
     if (strncmp(buf, "RLS NOK", 7) == 0) {
         printf("List: nenhum evento disponível\n");
     } else {
-        // Print the first chunk
         printf("%s", buf);
-        // Read the rest
         while ((n = read(tcp_fd, buf, sizeof(buf) - 1)) > 0) {
             buf[n] = '\0';
             printf("%s", buf);
@@ -329,7 +332,6 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    // Open and read file
     FILE *fp = fopen(filename, "rb");
     if (!fp) {
         printf("Erro: Não foi possível abrir ficheiro\n");
@@ -361,11 +363,9 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     }
     fclose(fp);
     
-    // Extract just filename (no path)
     char *basename = strrchr(filename, '/');
     basename = basename ? basename + 1 : filename;
-    
-    // Create TCP connection
+
     if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Erro ao criar socket TCP");
         free(file_data);
@@ -378,9 +378,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         free(file_data);
         return;
     }
-    
-    // Send command: CRE UID password name event_date attendance_size Fname Fsize Fdata
-    // event_date format: dd-mm-yyyy hh:mm
+
     char command[512];
     char event_date[30];
     snprintf(event_date, sizeof(event_date), "%s %s", date, time);
@@ -394,15 +392,13 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    // Send file data (Fdata)
     if (send_all_tcp(tcp_fd, file_data, filesize) < 0) {
         printf("Erro ao enviar ficheiro\n");
         close(tcp_fd);
         free(file_data);
         return;
     }
-    
-    // Send newline to mark end of message
+
     if (send_all_tcp(tcp_fd, "\n", 1) < 0) {
         printf("Erro ao enviar terminador\n");
         close(tcp_fd);
@@ -410,14 +406,12 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     free(file_data);
-    
-    // Set timeout for receiving response
+
     struct timeval timeout;
-    timeout.tv_sec = 10;  // Increase timeout to 10 seconds
+    timeout.tv_sec = 10;
     timeout.tv_usec = 0;
     setsockopt(tcp_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    
-    // Receive response
+
     char response[128];
     int n = recv_line_tcp(tcp_fd, response, sizeof(response));
     close(tcp_fd);
@@ -465,7 +459,6 @@ void cmd_close(struct sockaddr_in *server_addr, char *logged_uid, char *logged_p
         return;
     }
     
-    // Create TCP connection
     if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Erro ao criar socket TCP");
         return;
@@ -525,57 +518,133 @@ void cmd_show(struct sockaddr_in *server_addr, char *args) {
     
     snprintf(command, sizeof(command), "SED %s\n", EID);
     send_all_tcp(tcp_fd, command, strlen(command));
-    
-    char response[512];
-    int n = recv_line_tcp(tcp_fd, response, sizeof(response));
-    
-    if (n > 0 && strncmp(response, "RSE OK", 6) == 0) {
-        char name[11], date[11], time[6], filename[256];
-        int capacity, reserved, status;
-        size_t filesize;
-        
-        sscanf(response, "RSE OK %10s %10s %5s %d %d %255s %zu %d",
-               name, date, time, &capacity, &reserved, filename, &filesize, &status);
-        
-        printf("Evento: %s\n", name);
-        printf("Data: %s %s\n", date, time);
-        printf("Capacidade: %d\n", capacity);
-        printf("Reservados: %d\n", reserved);
-        printf("Ficheiro: %s (%zu bytes)\n", filename, filesize);
-        
-        if (status == 1) {
-            printf("Estado: Fechado pelo dono\n");
-        } else if (reserved >= capacity) {
-            printf("Estado: Esgotado\n");
-        } else {
-            printf("Estado: Aberto\n");
-        }
-        
-        // Receive file data
-        char *file_data = (char *)malloc(filesize);
-        if (file_data && recv_all_tcp(tcp_fd, file_data, filesize) == 0) {
-            // Save to local file
-            char local_filename[300];
-            snprintf(local_filename, sizeof(local_filename), "event_%s_%s", EID, filename);
-            FILE *fp = fopen(local_filename, "wb");
-            if (fp) {
-                fwrite(file_data, 1, filesize, fp);
-                fclose(fp);
-                printf("Ficheiro guardado como: %s\n", local_filename);
-                
-                char cwd[1024];
-                if (getcwd(cwd, sizeof(cwd)) != NULL) {
-                    printf("Diretoria: %s\n", cwd);
-                }
-            }
-        }
-        if (file_data) free(file_data);
-    } else if (n > 0 && strncmp(response, "RSE NOK", 7) == 0) {
-        printf("Show: evento não encontrado\n");
-    } else {
+
+    char tok[256];
+    char uid[7] = "";
+    char name[11] = "";
+    char date[11] = "";
+    char time_s[6] = "";
+    char filename[256] = "";
+    int capacity = 0;
+    int reserved = 0;
+    int state = -1;
+    size_t filesize = 0;
+
+    if (recv_token_tcp(tcp_fd, tok, sizeof(tok)) != 0 || strcmp(tok, "RSE") != 0) {
         printf("Show: erro ao receber resposta\n");
+        close(tcp_fd);
+        return;
     }
-    
+    if (recv_token_tcp(tcp_fd, tok, sizeof(tok)) != 0) {
+        printf("Show: erro ao receber resposta\n");
+        close(tcp_fd);
+        return;
+    }
+    if (strcmp(tok, "NOK") == 0) {
+        printf("Show: evento não encontrado\n");
+        close(tcp_fd);
+        return;
+    }
+    if (strcmp(tok, "ERR") == 0) {
+        printf("Show: erro de formato\n");
+        close(tcp_fd);
+        return;
+    }
+    if (strcmp(tok, "OK") != 0) {
+        printf("Show: %s\n", tok);
+        close(tcp_fd);
+        return;
+    }
+
+    if (recv_token_tcp(tcp_fd, uid, sizeof(uid)) != 0 ||
+        recv_token_tcp(tcp_fd, name, sizeof(name)) != 0 ||
+        recv_token_tcp(tcp_fd, date, sizeof(date)) != 0 ||
+        recv_token_tcp(tcp_fd, time_s, sizeof(time_s)) != 0 ||
+        recv_token_tcp(tcp_fd, tok, sizeof(tok)) != 0) {
+        printf("Show: erro ao receber resposta\n");
+        close(tcp_fd);
+        return;
+    }
+    capacity = atoi(tok);
+
+    if (recv_token_tcp(tcp_fd, tok, sizeof(tok)) != 0) {
+        printf("Show: erro ao receber resposta\n");
+        close(tcp_fd);
+        return;
+    }
+    reserved = atoi(tok);
+
+    if (recv_token_tcp(tcp_fd, filename, sizeof(filename)) != 0 ||
+        recv_token_tcp(tcp_fd, tok, sizeof(tok)) != 0) {
+        printf("Show: erro ao receber resposta\n");
+        close(tcp_fd);
+        return;
+    }
+    filesize = (size_t)strtoull(tok, NULL, 10);
+
+    if (filesize > 10485760) {
+        printf("Show: ficheiro demasiado grande\n");
+        close(tcp_fd);
+        return;
+    }
+
+    char peek2[2];
+    ssize_t pn = recv(tcp_fd, peek2, sizeof(peek2), MSG_PEEK);
+    if (pn == 2 && peek2[0] >= '0' && peek2[0] <= '3' && peek2[1] == ' ') {
+        if (recv_token_tcp(tcp_fd, tok, sizeof(tok)) != 0) {
+            printf("Show: erro ao receber resposta\n");
+            close(tcp_fd);
+            return;
+        }
+        state = atoi(tok);
+    } else {
+        if (is_date_past(date, time_s)) state = 0;
+        else if (reserved >= capacity) state = 2;
+        else state = 1;
+    }
+
+    printf("Dono: %s\n", uid);
+    printf("Nome: %s\n", name);
+    printf("Data: %s %s\n", date, time_s);
+    printf("Capacidade: %d\n", capacity);
+    printf("Reservados: %d\n", reserved);
+    printf("Ficheiro: %s (%zu bytes)\n", filename, filesize);
+
+    if (state == 3) printf("Estado: Fechado\n");
+    else if (state == 2) printf("Estado: Esgotado\n");
+    else if (state == 0) printf("Estado: Passado\n");
+    else printf("Estado: Aberto\n");
+
+    char *file_data = NULL;
+    if (filesize > 0) {
+        file_data = (char *)malloc(filesize);
+        if (!file_data) {
+            printf("Show: memória insuficiente\n");
+            close(tcp_fd);
+            return;
+        }
+        if (recv_all_tcp(tcp_fd, file_data, filesize) != 0) {
+            printf("Show: erro ao receber ficheiro\n");
+            free(file_data);
+            close(tcp_fd);
+            return;
+        }
+        char nl;
+        (void)recv(tcp_fd, &nl, 1, MSG_DONTWAIT);
+
+        char local_filename[300];
+        snprintf(local_filename, sizeof(local_filename), "event_%s_%s", EID, filename);
+        FILE *fp = fopen(local_filename, "wb");
+        if (fp) {
+            fwrite(file_data, 1, filesize, fp);
+            fclose(fp);
+            printf("Ficheiro guardado como: %s\n", local_filename);
+            char cwd[1024];
+            if (getcwd(cwd, sizeof(cwd)) != NULL) printf("Diretoria: %s\n", cwd);
+        }
+        free(file_data);
+    }
+
     close(tcp_fd);
 }
 
@@ -637,7 +706,6 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
     }
 }
 
-// Menu de ajuda
 void print_help() {
     printf("\nComandos disponíveis:\n");
     printf("  -login <UID> <password>              - Login (UID: 6 dig, pass: 8 alfanum)\n");
@@ -666,7 +734,6 @@ int main(int argc, char *argv[]) {
     char *server_ip = "127.0.0.1";
     char *port = DEFAULT_PORT;
     
-    // Parse argumentos: user [-n ESIPaddress] [-p ESport]
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-n") == 0 && i + 1 < argc) {
             server_ip = argv[++i];
@@ -675,13 +742,11 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    // Cria socket UDP
     if ((udp_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Erro ao criar socket UDP");
         return 1;
     }
     
-    // Configura endereço do servidor
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(atoi(port));
@@ -695,7 +760,6 @@ int main(int argc, char *argv[]) {
     printf("Conectado ao servidor %s:%s\n", server_ip, port);
     print_help();
     
-    // Loop de comandos
     char input_line[BUFFER_SIZE];
     while (1) {
         printf("> ");
@@ -703,16 +767,14 @@ int main(int argc, char *argv[]) {
             break;
         }
         
-        // Remove newline
         input_line[strcspn(input_line, "\n")] = 0;
         
         char command[100];
         char args[BUFFER_SIZE];
         args[0] = '\0';
         
-        // Split command and args
         int n = sscanf(input_line, "%99s %[^\n]", command, args);
-        if (n < 1) continue; // Empty line
+        if (n < 1) continue;
         
         if (strcmp(command, "login") == 0) {
             cmd_login(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
@@ -745,7 +807,6 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    // Cleanup
     close(udp_fd);
     printf("Cliente encerrado\n");
     

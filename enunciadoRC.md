@@ -190,9 +190,7 @@ RMR status [EID date value]*
 #### Create Event
 
 ```
-CRE UID password name event_date attendance_size Fname
-Fsize
-Fdata
+CRE UID password name event_date attendance_size Fname Fsize Fdata
 ```
 
 Reply:

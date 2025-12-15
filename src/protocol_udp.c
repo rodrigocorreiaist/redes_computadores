@@ -11,7 +11,7 @@ extern int verbose_mode;
 void process_udp_command(int udp_fd, char *buffer, ssize_t n,
                          struct sockaddr_in *client_addr, socklen_t addr_len,
                          int verbose_mode_local) {
-    char response[65535]; // Increased buffer size for lists
+    char response[65535];
     char command[4] = "";
     char UID[7] = "";
     buffer[n] = '\0';
@@ -93,15 +93,6 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
                 snprintf(response, sizeof(response), "RME ERR\n");
             } else {
                 if (!storage_user_exists(UID)) {
-                    snprintf(response, sizeof(response), "RME ERR\n"); // Or UNR? Spec says ERR for format, but maybe UNR/NOK? Spec: NLG, WRP, NOK(no events), ERR.
-                    // Wait, spec says: "RME status [EID state]*".
-                    // "NLG" - not authenticated.
-                    // "WRP" - wrong password.
-                    // "NOK" - no events.
-                    // "ERR" - format error.
-                    // It doesn't mention UNR.
-                    // If user doesn't exist, check password will fail -> WRP? Or treat as NLG?
-                    // Let's assume check_password returns false if user doesn't exist.
                     snprintf(response, sizeof(response), "RME NLG\n");
                 } else if (!storage_check_password(UID, password)) {
                     snprintf(response, sizeof(response), "RME WRP\n");

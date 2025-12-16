@@ -269,14 +269,9 @@ static void handle_sed(int client_fd, const char *buffer) {
     }
     
     char response[512];
-    int state;
-    if (is_date_past(date, time)) state = 0;
-    else if (storage_is_event_closed(EID)) state = 3;
-    else if (reserved >= attendance) state = 2;
-    else state = 1;
-
-    snprintf(response, sizeof(response), "RSE OK %s %s %s %s %d %d %s %zu %d ",
-             uid, name, date, time, attendance, reserved, fname, fsize, state);
+    /* Protocol: RSE OK UID name date time attendance_size seats_reserved Fname Fsize <space> Fdata '\n' */
+    snprintf(response, sizeof(response), "RSE OK %s %s %s %s %d %d %s %zu ",
+             uid, name, date, time, attendance, reserved, fname, fsize);
              
     send_all_tcp(client_fd, response, strlen(response));
     send_all_tcp(client_fd, file_data, fsize);

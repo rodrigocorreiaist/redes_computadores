@@ -692,8 +692,8 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
         return;
     }
     
-    if (seats <= 0) {
-        printf("Erro: Número inválido\n");
+    if (seats < 1 || seats > 999) {
+        printf("Erro: Número inválido (1..999)\n");
         return;
     }
     

@@ -289,7 +289,7 @@ static void handle_rid(int client_fd, const char *buffer) {
         return;
     }
     
-    if (!validate_uid(UID) || !validate_password(password) || !validate_eid(EID) || num_seats <= 0) {
+    if (!validate_uid(UID) || !validate_password(password) || !validate_eid(EID) || num_seats < 1 || num_seats > 999) {
         send_all_tcp(client_fd, "RRI ERR\n", 8);
         return;
     }
@@ -313,10 +313,14 @@ static void handle_rid(int client_fd, const char *buffer) {
     if (res == 0) {
         send_all_tcp(client_fd, "RRI ACC\n", 8);
     } else if (res > 0) {
-        /* Rejected due to insufficient seats: include remaining seats. */
-        char reply[64];
-        snprintf(reply, sizeof(reply), "RRI REJ %d\n", res);
-        send_all_tcp(client_fd, reply, strlen(reply));
+        if (res == 0) {
+            send_all_tcp(client_fd, "RRI SLD\n", 8);
+        } else {
+            /* Rejected due to insufficient seats: include remaining seats. */
+            char reply[64];
+            snprintf(reply, sizeof(reply), "RRI REJ %d\n", res);
+            send_all_tcp(client_fd, reply, strlen(reply));
+        }
     } else if (res == -2) {
         send_all_tcp(client_fd, "RRI CLS\n", 8);
     } else if (res == -3) {

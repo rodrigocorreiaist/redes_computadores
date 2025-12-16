@@ -79,6 +79,8 @@ int validate_eid(const char *eid) {
     if (strlen(eid) != 3) return 0;
     for (int i = 0; i < 3; i++)
         if (!isdigit((unsigned char)eid[i])) return 0;
+    int v = atoi(eid);
+    if (v < 1 || v > 999) return 0;
     return 1;
 }
 

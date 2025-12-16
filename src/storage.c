@@ -293,7 +293,8 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
 
     int current_res = get_reservations_count(eid);
     if (current_res >= attendance) return -3; /* sold out */
-    if (current_res + num_seats > attendance) return -3; /* would exceed capacity */
+    /* Not enough available seats: reject but report how many seats remain. */
+    if (current_res + num_seats > attendance) return (attendance - current_res);
 
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
@@ -326,12 +327,10 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
         fclose(fp);
     }
 
-        int new_total = current_res + num_seats;
-        update_reservations_count(eid, new_total);
-        /* On success, return the total number of reserved seats in the event after this reservation.
-             Negative values remain error codes.
-         */
-        return new_total;
+    int new_total = current_res + num_seats;
+    update_reservations_count(eid, new_total);
+    /* Success: protocol only needs ACC; do not encode extra data here. */
+    return 0;
 }
 
 int storage_list_events(char *buffer, size_t max_len) {

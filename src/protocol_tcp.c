@@ -310,10 +310,12 @@ static void handle_rid(int client_fd, const char *buffer) {
     }
     
     int res = storage_reserve(UID, EID, num_seats);
-    if (res > 0) {
-        /* Protocol expects the number of reserved seats after the operation. */
+    if (res == 0) {
+        send_all_tcp(client_fd, "RRI ACC\n", 8);
+    } else if (res > 0) {
+        /* Rejected due to insufficient seats: include remaining seats. */
         char reply[64];
-        snprintf(reply, sizeof(reply), "RRI ACC %d\n", res);
+        snprintf(reply, sizeof(reply), "RRI REJ %d\n", res);
         send_all_tcp(client_fd, reply, strlen(reply));
     } else if (res == -2) {
         send_all_tcp(client_fd, "RRI CLS\n", 8);
@@ -322,8 +324,8 @@ static void handle_rid(int client_fd, const char *buffer) {
     } else if (res == -5) {
         send_all_tcp(client_fd, "RRI PST\n", 8);
     } else {
-        /* No protocol-level ERR token for RID; use REJ for other failures (e.g., no event / IO). */
-        send_all_tcp(client_fd, "RRI REJ\n", 8);
+        /* No such event or other non-active/unknown. */
+        send_all_tcp(client_fd, "RRI NOK\n", 8);
     }
 }
 

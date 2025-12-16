@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -714,14 +716,14 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
     
     if (n > 0) {
         if (strncmp(response, "RRI ACC", 7) == 0) {
-            int reserved = 0;
-            if (sscanf(response, "RRI ACC %d", &reserved) == 1 && reserved > 0) {
-                printf("Reserva aceite (%d lugares)\n", reserved);
-            } else {
-                printf("Reserva aceite\n");
-            }
+            printf("Reserva aceite\n");
         } else if (strncmp(response, "RRI REJ", 7) == 0) {
-            printf("Reserve: pedido rejeitado\n");
+            int remaining = -1;
+            if (sscanf(response, "RRI REJ %d", &remaining) == 1 && remaining >= 0) {
+                printf("Reserve: pedido rejeitado (restam %d lugares)\n", remaining);
+            } else {
+                printf("Reserve: pedido rejeitado\n");
+            }
         } else if (strncmp(response, "RRI CLS", 7) == 0) {
             printf("Reserve: evento fechado\n");
         } else if (strncmp(response, "RRI SLD", 7) == 0) {
@@ -732,6 +734,8 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
             printf("Reserve: não autenticado\n");
         } else if (strncmp(response, "RRI WRP", 7) == 0) {
             printf("Reserve: password incorreta\n");
+        } else if (strncmp(response, "RRI NOK", 7) == 0) {
+            printf("Reserve: evento não existe/não ativo\n");
         } else if (strncmp(response, "RRI ERR", 7) == 0) {
             printf("Reserve: erro de formato\n");
         } else {
@@ -781,12 +785,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = handle_sigint;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0; /* allow fgets()/recvfrom() to be interrupted */
-    sigaction(SIGINT, &sa, NULL);
+    signal(SIGINT, handle_sigint);
     
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;

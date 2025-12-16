@@ -326,8 +326,12 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
         fclose(fp);
     }
 
-    update_reservations_count(eid, current_res + num_seats);
-    return 0;
+        int new_total = current_res + num_seats;
+        update_reservations_count(eid, new_total);
+        /* On success, return the total number of reserved seats in the event after this reservation.
+             Negative values remain error codes.
+         */
+        return new_total;
 }
 
 int storage_list_events(char *buffer, size_t max_len) {

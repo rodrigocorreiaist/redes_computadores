@@ -310,9 +310,10 @@ static void handle_rid(int client_fd, const char *buffer) {
     }
     
     int res = storage_reserve(UID, EID, num_seats);
-    if (res == 0) {
+    if (res > 0) {
+        /* Protocol expects the number of reserved seats after the operation. */
         char reply[64];
-        snprintf(reply, sizeof(reply), "RRI ACC %d\n", num_seats);
+        snprintf(reply, sizeof(reply), "RRI ACC %d\n", res);
         send_all_tcp(client_fd, reply, strlen(reply));
     } else if (res == -2) {
         send_all_tcp(client_fd, "RRI CLS\n", 8);

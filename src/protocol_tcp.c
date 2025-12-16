@@ -269,7 +269,6 @@ static void handle_sed(int client_fd, const char *buffer) {
     }
     
     char response[512];
-    /* Protocol: RSE OK UID name date time attendance_size seats_reserved Fname Fsize <space> Fdata '\n' */
     snprintf(response, sizeof(response), "RSE OK %s %s %s %s %d %d %s %zu ",
              uid, name, date, time, attendance, reserved, fname, fsize);
              
@@ -316,7 +315,6 @@ static void handle_rid(int client_fd, const char *buffer) {
         if (res == 0) {
             send_all_tcp(client_fd, "RRI SLD\n", 8);
         } else {
-            /* Rejected due to insufficient seats: include remaining seats. */
             char reply[64];
             snprintf(reply, sizeof(reply), "RRI REJ %d\n", res);
             send_all_tcp(client_fd, reply, strlen(reply));
@@ -328,7 +326,6 @@ static void handle_rid(int client_fd, const char *buffer) {
     } else if (res == -5) {
         send_all_tcp(client_fd, "RRI PST\n", 8);
     } else {
-        /* No such event or other non-active/unknown. */
         send_all_tcp(client_fd, "RRI NOK\n", 8);
     }
 }
@@ -369,7 +366,7 @@ static void handle_cps(int client_fd, const char *buffer) {
 }
 
 void process_tcp_command(int client_fd, int verbose_mode) {
-    /* CRE includes binary file data; do not use line-based reads for it. */
+    /* CRE tem payload binário; não usar leitura por linhas. */
     char peek4[4];
     ssize_t pn = recv(client_fd, peek4, sizeof(peek4), MSG_PEEK);
     if (pn <= 0) {

@@ -14,6 +14,7 @@ void process_udp_command(int udp_fd, char *buffer, ssize_t n,
     char response[65535];
     char command[4] = "";
     char UID[7] = "";
+    /* Datagramas UDP não são necessariamente '\0'-terminated. */
     buffer[n] = '\0';
     sscanf(buffer, "%3s", command);
 

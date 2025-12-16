@@ -319,9 +319,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         printf("Não está logged in\n");
         return;
     }
-    
-    /* CLI spec: create name event_fname event_date num_attendees
-       where event_date is: DD-MM-YYYY HH:MM */
+
     if (sscanf(args, "%11s %255s %11s %6s %d", name, filename, date, time, &capacity) != 5) {
         printf("Uso: create <name> <event_fname> <event_date> <num_attendees>\n");
         printf("  event_date: DD-MM-YYYY HH:MM\n");
@@ -407,6 +405,7 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     }
     
     char size_line[64];
+    /* Protocolo: linha com tamanho, depois bytes do ficheiro, depois '\n'. */
     snprintf(size_line, sizeof(size_line), "%zu\n", filesize);
     if (send_all_tcp(tcp_fd, size_line, strlen(size_line)) < 0) {
         printf("Erro ao enviar tamanho do ficheiro\n");

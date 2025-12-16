@@ -165,6 +165,7 @@ static int reserve_next_event_dir(char *eid_out, char *event_dir_out, size_t eve
         char dir_path[PATH_MAX_LEN];
         snprintf(dir_path, sizeof(dir_path), "%s/%.*s", EVENTS_DIR, EID_LEN, eid_out);
 
+        /* mkdir reserva o EID de forma atómica. */
         if (mkdir(dir_path, 0700) == 0) {
             if (event_dir_out && event_dir_out_sz > 0) {
                 strncpy(event_dir_out, dir_path, event_dir_out_sz - 1);
@@ -180,7 +181,6 @@ static int reserve_next_event_dir(char *eid_out, char *event_dir_out, size_t eve
         return -1;
     }
 
-    /* No more EIDs available (up to 999). */
     return -1;
 }
 
@@ -307,7 +307,7 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
     fscanf(fp, "%s %s %s %d %s %s", owner, name, fname, &attendance, date, time_str);
     fclose(fp);
 
-    if (storage_is_event_closed(eid)) return -2; /* closed by host */
+    if (storage_is_event_closed(eid)) return -2;
 
     if (is_date_past(date, time_str)) {
         char end_path[PATH_MAX_LEN];
@@ -317,12 +317,11 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
             fprintf(end_fp, "%s %s:00", date, time_str);
             fclose(end_fp);
         }
-        return -5; /* past */
+        return -5;
     }
 
     int current_res = get_reservations_count(eid);
-    if (current_res >= attendance) return -3; /* sold out */
-    /* Not enough available seats: reject but report how many seats remain. */
+    if (current_res >= attendance) return -3;
     if (current_res + num_seats > attendance) return (attendance - current_res);
 
     time_t now = time(NULL);
@@ -358,7 +357,6 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
 
     int new_total = current_res + num_seats;
     update_reservations_count(eid, new_total);
-    /* Success: protocol only needs ACC; do not encode extra data here. */
     return 0;
 }
 
@@ -512,7 +510,6 @@ int storage_list_my_reservations(const char *uid, char *buffer, size_t max_len) 
                 
                 if (found_eid[0] != '\0') {
                     char entry[100];
-                    /* Protocol expects: EID date time value */
                     snprintf(entry, sizeof(entry), " %s %s %s %d", found_eid, r_date, r_time, r_num);
                     if (strlen(buffer) + strlen(entry) < max_len) {
                         strcat(buffer, entry);

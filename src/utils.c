@@ -156,6 +156,7 @@ int recv_line_tcp(int fd, char *buf, size_t maxlen) {
         if (n <= 0) {
             if (n < 0 && errno == EINTR) continue;
             if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                /* -2: timeout sem dados. */
                 if (i > 0) {
                     buf[i] = '\0';
                     return (int)i;

@@ -89,13 +89,14 @@ int main(int argc, char *argv[]) {
     
     printf("Servidor iniciado na porta %s%s\n", port, verbose_mode ? " (verbose)" : "");
 
+    /* Evita SIGPIPE em writes para sockets fechados. */
     signal(SIGPIPE, SIG_IGN);
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = handle_signal;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0; /* do not restart syscalls: we want select()/accept() to wake */
+    sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
 
     struct sigaction sa_chld;
@@ -156,14 +157,14 @@ int main(int argc, char *argv[]) {
                     perror("fork");
                     close(new_socket);
                 } else if (pid == 0) {
-                    /* Child process: handle this TCP connection. */
+                    /* Filho: processa esta ligação TCP. */
                     close(tcp_fd);
                     close(udp_fd);
                     process_tcp_command(new_socket, verbose_mode);
                     close(new_socket);
                     _exit(0);
                 } else {
-                    /* Parent process: close connected socket and keep accepting. */
+                    /* Pai: mantém o servidor a aceitar. */
                     close(new_socket);
                 }
             }

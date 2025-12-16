@@ -20,9 +20,6 @@ int storage_close_event(const char *uid, const char *eid);
 int storage_is_event_closed(const char *eid);
 int storage_get_event_owner(const char *eid, char *uid_out);
 
-/* Returns total reserved seats in the event after the reservation on success (>0).
-     Returns a negative error code on failure.
- */
 int storage_reserve(const char *uid, const char *eid, int num_seats);
 
 int storage_list_events(char *buffer, size_t max_len);

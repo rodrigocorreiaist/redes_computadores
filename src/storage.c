@@ -278,7 +278,7 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
     fscanf(fp, "%s %s %s %d %s %s", owner, name, fname, &attendance, date, time_str);
     fclose(fp);
 
-    if (storage_is_event_closed(eid)) return -2;
+    if (storage_is_event_closed(eid)) return -2; /* closed by host */
 
     if (is_date_past(date, time_str)) {
         char end_path[PATH_MAX_LEN];
@@ -288,11 +288,12 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
             fprintf(end_fp, "%s %s:00", date, time_str);
             fclose(end_fp);
         }
-        return -2;
+        return -5; /* past */
     }
 
     int current_res = get_reservations_count(eid);
-    if (current_res + num_seats > attendance) return -3;
+    if (current_res >= attendance) return -3; /* sold out */
+    if (current_res + num_seats > attendance) return -3; /* would exceed capacity */
 
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
@@ -313,7 +314,7 @@ int storage_reserve(const char *uid, const char *eid, int num_seats) {
     char event_res_path[PATH_MAX_LEN];
     snprintf(event_res_path, sizeof(event_res_path), "%s/%.*s/RESERVATIONS/%.*s", EVENTS_DIR, EID_LEN, eid, RES_NAME_MAX_LEN, res_filename);
     fp = fopen(event_res_path, "w");
-    if (!fp) return -4;
+    if (!fp) return -6;
     fprintf(fp, "%s", res_content);
     fclose(fp);
 
@@ -479,7 +480,8 @@ int storage_list_my_reservations(const char *uid, char *buffer, size_t max_len) 
                 
                 if (found_eid[0] != '\0') {
                     char entry[100];
-                    snprintf(entry, sizeof(entry), " %s %s %d", found_eid, r_date, r_num);
+                    /* Protocol expects: EID date time value */
+                    snprintf(entry, sizeof(entry), " %s %s %s %d", found_eid, r_date, r_time, r_num);
                     if (strlen(buffer) + strlen(entry) < max_len) {
                         strcat(buffer, entry);
                         count++;

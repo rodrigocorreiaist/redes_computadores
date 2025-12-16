@@ -714,13 +714,26 @@ void cmd_reserve(struct sockaddr_in *server_addr, char *logged_uid, char *logged
     
     if (n > 0) {
         if (strncmp(response, "RRI ACC", 7) == 0) {
-            printf("Reserva aceite\n");
+            int reserved = 0;
+            if (sscanf(response, "RRI ACC %d", &reserved) == 1 && reserved > 0) {
+                printf("Reserva aceite (%d lugares)\n", reserved);
+            } else {
+                printf("Reserva aceite\n");
+            }
+        } else if (strncmp(response, "RRI REJ", 7) == 0) {
+            printf("Reserve: pedido rejeitado\n");
         } else if (strncmp(response, "RRI CLS", 7) == 0) {
             printf("Reserve: evento fechado\n");
-        } else if (strncmp(response, "RRI FUL", 7) == 0) {
-            printf("Reserve: evento esgotado ou não há lugares suficientes\n");
-        } else if (strncmp(response, "RRI NOK", 7) == 0) {
-            printf("Reserve: evento não existe ou falha na reserva\n");
+        } else if (strncmp(response, "RRI SLD", 7) == 0) {
+            printf("Reserve: evento esgotado\n");
+        } else if (strncmp(response, "RRI PST", 7) == 0) {
+            printf("Reserve: evento já ocorreu\n");
+        } else if (strncmp(response, "RRI NLG", 7) == 0) {
+            printf("Reserve: não autenticado\n");
+        } else if (strncmp(response, "RRI WRP", 7) == 0) {
+            printf("Reserve: password incorreta\n");
+        } else if (strncmp(response, "RRI ERR", 7) == 0) {
+            printf("Reserve: erro de formato\n");
         } else {
             printf("Reserve: %s\n", response);
         }

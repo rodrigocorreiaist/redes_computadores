@@ -294,8 +294,13 @@ static void handle_rid(int client_fd, const char *buffer) {
         return;
     }
     
-    if (!storage_user_exists(UID) || !storage_check_password(UID, password)) {
-        send_all_tcp(client_fd, "RRI NOK\n", 8); 
+    if (!storage_user_exists(UID)) {
+        send_all_tcp(client_fd, "RRI NLG\n", 8);
+        return;
+    }
+
+    if (!storage_check_password(UID, password)) {
+        send_all_tcp(client_fd, "RRI WRP\n", 8);
         return;
     }
     
@@ -305,11 +310,20 @@ static void handle_rid(int client_fd, const char *buffer) {
     }
     
     int res = storage_reserve(UID, EID, num_seats);
-    if (res == 0) send_all_tcp(client_fd, "RRI OK\n", 7);
-    else if (res == -1) send_all_tcp(client_fd, "RRI NOK\n", 8);
-    else if (res == -2) send_all_tcp(client_fd, "RRI CPT\n", 8);
-    else if (res == -3) send_all_tcp(client_fd, "RRI FUL\n", 8);
-    else send_all_tcp(client_fd, "RRI ERR\n", 8);
+    if (res == 0) {
+        char reply[64];
+        snprintf(reply, sizeof(reply), "RRI ACC %d\n", num_seats);
+        send_all_tcp(client_fd, reply, strlen(reply));
+    } else if (res == -2) {
+        send_all_tcp(client_fd, "RRI CLS\n", 8);
+    } else if (res == -3) {
+        send_all_tcp(client_fd, "RRI SLD\n", 8);
+    } else if (res == -5) {
+        send_all_tcp(client_fd, "RRI PST\n", 8);
+    } else {
+        /* No protocol-level ERR token for RID; use REJ for other failures (e.g., no event / IO). */
+        send_all_tcp(client_fd, "RRI REJ\n", 8);
+    }
 }
 
 static void handle_cps(int client_fd, const char *buffer) {

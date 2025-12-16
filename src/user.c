@@ -6,10 +6,19 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <errno.h>
+#include <signal.h>
 #include "utils.h"
 
 #define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
+
+static volatile sig_atomic_t keep_running = 1;
+
+static void handle_sigint(int sig) {
+    (void)sig;
+    keep_running = 0;
+}
 
 static int recv_token_tcp(int fd, char *out, size_t out_sz) {
     if (out_sz == 0) return -1;
@@ -40,6 +49,7 @@ int send_udp_command(int udp_fd, struct sockaddr_in *server_addr, const char *co
     ssize_t sent = sendto(udp_fd, command, strlen(command), 0,
                           (struct sockaddr*)server_addr, addr_len);
     if (sent < 0) {
+        if (errno == EINTR && !keep_running) return -1;
         perror("Erro ao enviar comando UDP");
         return -1;
     }
@@ -47,6 +57,7 @@ int send_udp_command(int udp_fd, struct sockaddr_in *server_addr, const char *co
     ssize_t received = recvfrom(udp_fd, response, BUFFER_SIZE - 1, 0,
                                 (struct sockaddr*)server_addr, &addr_len);
     if (received < 0) {
+        if (errno == EINTR && !keep_running) return -1;
         perror("Erro ao receber resposta UDP");
         return -1;
     }
@@ -753,6 +764,13 @@ int main(int argc, char *argv[]) {
         perror("Erro ao criar socket UDP");
         return 1;
     }
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sigint;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; /* allow fgets()/recvfrom() to be interrupted */
+    sigaction(SIGINT, &sa, NULL);
     
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -768,9 +786,11 @@ int main(int argc, char *argv[]) {
     print_help();
     
     char input_line[BUFFER_SIZE];
-    while (1) {
+    while (keep_running) {
         printf("> ");
         if (fgets(input_line, sizeof(input_line), stdin) == NULL) {
+            if (!keep_running) break;
+            if (errno == EINTR) continue;
             break;
         }
         

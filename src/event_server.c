@@ -25,6 +25,15 @@ void handle_signal(int sig) {
     keep_running = 0;
 }
 
+static void close_all_clients(int client_socket[], int max_clients) {
+    for (int i = 0; i < max_clients; i++) {
+        if (client_socket[i] > 0) {
+            close(client_socket[i]);
+            client_socket[i] = 0;
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     int udp_fd, tcp_fd;
     struct sockaddr_in server_addr, client_addr;
@@ -82,7 +91,13 @@ int main(int argc, char *argv[]) {
     printf("Servidor iniciado na porta %s%s\n", port, verbose_mode ? " (verbose)" : "");
 
     signal(SIGPIPE, SIG_IGN);
-    signal(SIGINT, handle_signal);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_signal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; /* do not restart syscalls: we want select()/accept() to wake */
+    sigaction(SIGINT, &sa, NULL);
     
     fd_set read_fds;
     int max_fd;
@@ -107,8 +122,12 @@ int main(int argc, char *argv[]) {
         timeout.tv_usec = 0;
         
         int activity = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
-        
-        if (activity < 0 && errno != EINTR) {
+
+        if (activity < 0) {
+            if (errno == EINTR) {
+                if (!keep_running) break;
+                continue;
+            }
             perror("Select error");
             break;
         }
@@ -120,12 +139,18 @@ int main(int argc, char *argv[]) {
         if (FD_ISSET(udp_fd, &read_fds)) {
             ssize_t n = recvfrom(udp_fd, buffer, BUFFER_SIZE - 1, 0,
                                 (struct sockaddr*)&client_addr, &addr_len);
-            if (n > 0) process_udp_command(udp_fd, buffer, n, &client_addr, addr_len, verbose_mode);
+            if (n > 0) {
+                process_udp_command(udp_fd, buffer, n, &client_addr, addr_len, verbose_mode);
+            } else if (n < 0 && errno == EINTR && !keep_running) {
+                break;
+            }
         }
 
         if (FD_ISSET(tcp_fd, &read_fds)) {
             int new_socket = accept(tcp_fd, (struct sockaddr*)&client_addr, &addr_len);
-            if (new_socket >= 0) {
+            if (new_socket < 0) {
+                if (errno == EINTR && !keep_running) break;
+            } else {
                 if (verbose_mode) printf("New connection accepted\n");
 
                 int added = 0;
@@ -152,7 +177,8 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    
+
+    close_all_clients(client_socket, MAX_CLIENTS);
     close(udp_fd);
     close(tcp_fd);
     

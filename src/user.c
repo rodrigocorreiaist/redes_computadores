@@ -318,8 +318,11 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
         return;
     }
     
-    if (sscanf(args, "%11s %11s %6s %d %255s", name, date, time, &capacity, filename) != 5) {
-        printf("Uso: create <name> <date> <time> <capacity> <filename>\n");
+    /* CLI spec: create name event_fname event_date num_attendees
+       where event_date is: DD-MM-YYYY HH:MM */
+    if (sscanf(args, "%11s %255s %11s %6s %d", name, filename, date, time, &capacity) != 5) {
+        printf("Uso: create <name> <event_fname> <event_date> <num_attendees>\n");
+        printf("  event_date: DD-MM-YYYY HH:MM\n");
         return;
     }
     
@@ -730,8 +733,8 @@ void print_help() {
     printf("  -logout                              - Fazer logout\n");
     printf("  -unregister <password>               - Desregistar (pass: 8 alfanum)\n");
     printf("  -changepass <old_pass> <new_pass>    - Alterar pass (8 alfanum)\n");
-    printf("  -create <name> <date> <time> <cap> <file>\n");
-    printf("      name: max 10 alfanum, date: DD-MM-YYYY, time: HH:MM, cap: 10..999\n");
+    printf("  -create <name> <event_fname> <event_date> <num_attendees>\n");
+    printf("      name: max 10 alfanum, event_date: DD-MM-YYYY HH:MM, num_attendees: 10..999\n");
     printf("  -close <EID>                         - Fechar evento (EID: 3 dig)\n");
     printf("  -list                                - Listar todos os eventos\n");
     printf("  -show <EID>                          - Mostrar detalhes (EID: 3 dig)\n");

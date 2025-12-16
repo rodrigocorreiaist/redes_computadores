@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,10 +15,10 @@
 #include <sys/select.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/wait.h>
 
 #define DEFAULT_PORT "58092"
 #define BUFFER_SIZE 1024
-#define MAX_CLIENTS 30
 
 int verbose_mode = 0;
 volatile sig_atomic_t keep_running = 1;
@@ -25,12 +27,9 @@ void handle_signal(int sig) {
     keep_running = 0;
 }
 
-static void close_all_clients(int client_socket[], int max_clients) {
-    for (int i = 0; i < max_clients; i++) {
-        if (client_socket[i] > 0) {
-            close(client_socket[i]);
-            client_socket[i] = 0;
-        }
+static void handle_sigchld(int sig) {
+    (void)sig;
+    while (waitpid(-1, NULL, WNOHANG) > 0) {
     }
 }
 
@@ -82,7 +81,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    if (listen(tcp_fd, 5) < 0) {
+    if (listen(tcp_fd, SOMAXCONN) < 0) {
         perror("Listen TCP failed");
         close(udp_fd); close(tcp_fd);
         exit(EXIT_FAILURE);
@@ -98,11 +97,16 @@ int main(int argc, char *argv[]) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0; /* do not restart syscalls: we want select()/accept() to wake */
     sigaction(SIGINT, &sa, NULL);
+
+    struct sigaction sa_chld;
+    memset(&sa_chld, 0, sizeof(sa_chld));
+    sa_chld.sa_handler = handle_sigchld;
+    sigemptyset(&sa_chld.sa_mask);
+    sa_chld.sa_flags = SA_RESTART;
+    sigaction(SIGCHLD, &sa_chld, NULL);
     
     fd_set read_fds;
     int max_fd;
-    int client_socket[MAX_CLIENTS];
-    for (int i = 0; i < MAX_CLIENTS; i++) client_socket[i] = 0;
     
     while (keep_running) {
         FD_ZERO(&read_fds);
@@ -110,12 +114,6 @@ int main(int argc, char *argv[]) {
         FD_SET(tcp_fd, &read_fds);
         
         max_fd = (udp_fd > tcp_fd) ? udp_fd : tcp_fd;
-
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            int sd = client_socket[i];
-            if (sd > 0) FD_SET(sd, &read_fds);
-            if (sd > max_fd) max_fd = sd;
-        }
         
         struct timeval timeout;
         timeout.tv_sec = 10;
@@ -153,32 +151,25 @@ int main(int argc, char *argv[]) {
             } else {
                 if (verbose_mode) printf("New connection accepted\n");
 
-                int added = 0;
-                for (int i = 0; i < MAX_CLIENTS; i++) {
-                    if (client_socket[i] == 0) {
-                        client_socket[i] = new_socket;
-                        added = 1;
-                        break;
-                    }
-                }
-                
-                if (!added) {
-                    if (verbose_mode) printf("Too many clients, rejecting\n");
+                pid_t pid = fork();
+                if (pid < 0) {
+                    perror("fork");
+                    close(new_socket);
+                } else if (pid == 0) {
+                    /* Child process: handle this TCP connection. */
+                    close(tcp_fd);
+                    close(udp_fd);
+                    process_tcp_command(new_socket, verbose_mode);
+                    close(new_socket);
+                    _exit(0);
+                } else {
+                    /* Parent process: close connected socket and keep accepting. */
                     close(new_socket);
                 }
             }
         }
-
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            int sd = client_socket[i];
-            if (sd > 0 && FD_ISSET(sd, &read_fds)) {
-                process_tcp_command(sd, verbose_mode);
-                client_socket[i] = 0;
-            }
-        }
     }
 
-    close_all_clients(client_socket, MAX_CLIENTS);
     close(udp_fd);
     close(tcp_fd);
     

@@ -152,14 +152,43 @@ static int get_next_eid(char *eid_out) {
     return 0;
 }
 
+static int reserve_next_event_dir(char *eid_out, char *event_dir_out, size_t event_dir_out_sz) {
+    char next_eid[4];
+    if (get_next_eid(next_eid) != 0) return -1;
+
+    int start = atoi(next_eid);
+    if (start <= 0 || start > 999) return -1;
+
+    for (int cand = start; cand <= 999; cand++) {
+        snprintf(eid_out, 4, "%03d", cand);
+
+        char dir_path[PATH_MAX_LEN];
+        snprintf(dir_path, sizeof(dir_path), "%s/%.*s", EVENTS_DIR, EID_LEN, eid_out);
+
+        if (mkdir(dir_path, 0700) == 0) {
+            if (event_dir_out && event_dir_out_sz > 0) {
+                strncpy(event_dir_out, dir_path, event_dir_out_sz - 1);
+                event_dir_out[event_dir_out_sz - 1] = '\0';
+            }
+            return 0;
+        }
+
+        if (errno == EEXIST) {
+            continue;
+        }
+
+        return -1;
+    }
+
+    /* No more EIDs available (up to 999). */
+    return -1;
+}
+
 int storage_create_event(const char *uid, const char *name, const char *date, const char *time, 
                         int attendance, const char *fname, const void *fdata, size_t fsize, char *eid_out) {
-    
-    if (get_next_eid(eid_out) != 0) return -1;
 
     char event_dir[PATH_MAX_LEN];
-    snprintf(event_dir, sizeof(event_dir), "%s/%.*s", EVENTS_DIR, EID_LEN, eid_out);
-    if (ensure_dir(event_dir) != 0) return -1;
+    if (reserve_next_event_dir(eid_out, event_dir, sizeof(event_dir)) != 0) return -1;
 
     char start_path[PATH_MAX_LEN];
     snprintf(start_path, sizeof(start_path), "%s/%.*s/START%.*s.txt", EVENTS_DIR, EID_LEN, eid_out, EID_LEN, eid_out);

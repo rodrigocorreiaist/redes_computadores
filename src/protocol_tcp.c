@@ -13,6 +13,108 @@
 
 #define BUFFER_SIZE 1024
 #define MAX_FILE_SIZE 10485760
+
+static int recv_token_tcp(int fd, char *out, size_t out_sz) {
+    if (out_sz == 0) return -1;
+
+    size_t i = 0;
+    char c;
+
+    for (;;) {
+        ssize_t n = read(fd, &c, 1);
+        if (n <= 0) return -1;
+        if (c != ' ' && c != '\n' && c != '\r' && c != '\t') break;
+    }
+
+    for (;;) {
+        if (c == ' ' || c == '\n' || c == '\r' || c == '\t') break;
+        if (i + 1 < out_sz) out[i++] = c;
+        ssize_t n = read(fd, &c, 1);
+        if (n <= 0) break;
+    }
+
+    out[i] = '\0';
+    return 0;
+}
+
+static void handle_cre_stream(int client_fd, int verbose_mode) {
+    char tok[64];
+    char UID[7], password[9], name[11], date[11], time_s[6], filename[256];
+    char fsize_tok[32];
+    int capacity;
+    size_t filesize;
+
+    if (recv_token_tcp(client_fd, tok, sizeof(tok)) != 0 || strcmp(tok, "CRE") != 0) {
+        send_all_tcp(client_fd, "RCE ERR\n", 8);
+        return;
+    }
+
+    if (recv_token_tcp(client_fd, UID, sizeof(UID)) != 0 ||
+        recv_token_tcp(client_fd, password, sizeof(password)) != 0 ||
+        recv_token_tcp(client_fd, name, sizeof(name)) != 0 ||
+        recv_token_tcp(client_fd, date, sizeof(date)) != 0 ||
+        recv_token_tcp(client_fd, time_s, sizeof(time_s)) != 0 ||
+        recv_token_tcp(client_fd, tok, sizeof(tok)) != 0 ||
+        recv_token_tcp(client_fd, filename, sizeof(filename)) != 0 ||
+        recv_token_tcp(client_fd, fsize_tok, sizeof(fsize_tok)) != 0) {
+        send_all_tcp(client_fd, "RCE ERR\n", 8);
+        return;
+    }
+
+    capacity = atoi(tok);
+    filesize = (size_t)strtoull(fsize_tok, NULL, 10);
+
+    if (verbose_mode) {
+        printf("[TCP] CRE from UID %s: %s %s %s %d %s (%zu bytes)\n",
+               UID, name, date, time_s, capacity, filename, filesize);
+    }
+
+    if (!validate_uid(UID) || !validate_password(password) ||
+        !validate_event_name(name) || !validate_date(date) ||
+        !validate_time(time_s) || capacity < 10 || capacity > 999 ||
+        filesize == 0 || filesize > MAX_FILE_SIZE) {
+        send_all_tcp(client_fd, "RCE ERR\n", 8);
+        return;
+    }
+
+    if (!storage_user_exists(UID) || !storage_check_password(UID, password)) {
+        send_all_tcp(client_fd, "RCE NOK\n", 8);
+        return;
+    }
+
+    if (!storage_is_logged_in(UID)) {
+        send_all_tcp(client_fd, "RCE NLG\n", 8);
+        return;
+    }
+
+    char *file_data = (char *)malloc(filesize);
+    if (!file_data) {
+        send_all_tcp(client_fd, "RCE NOK\n", 8);
+        return;
+    }
+
+    if (recv_all_tcp(client_fd, file_data, filesize) < 0) {
+        free(file_data);
+        send_all_tcp(client_fd, "RCE ERR\n", 8);
+        return;
+    }
+
+    char nl;
+    (void)recv(client_fd, &nl, 1, MSG_DONTWAIT);
+
+    char eid[4];
+    if (storage_create_event(UID, name, date, time_s, capacity, filename, file_data, filesize, eid) != 0) {
+        free(file_data);
+        send_all_tcp(client_fd, "RCE NOK\n", 8);
+        return;
+    }
+
+    free(file_data);
+    char response[32];
+    snprintf(response, sizeof(response), "RCE OK %s\n", eid);
+    send_all_tcp(client_fd, response, strlen(response));
+}
+
 static void handle_cre(int client_fd, const char *buffer) {
     char UID[7], password[9], name[11], date[11], time[6], filename[256];
     int capacity;
@@ -251,6 +353,19 @@ static void handle_cps(int client_fd, const char *buffer) {
 }
 
 void process_tcp_command(int client_fd, int verbose_mode) {
+    /* CRE includes binary file data; do not use line-based reads for it. */
+    char peek4[4];
+    ssize_t pn = recv(client_fd, peek4, sizeof(peek4), MSG_PEEK);
+    if (pn <= 0) {
+        close(client_fd);
+        return;
+    }
+    if (pn == 4 && memcmp(peek4, "CRE ", 4) == 0) {
+        handle_cre_stream(client_fd, verbose_mode);
+        close(client_fd);
+        return;
+    }
+
     char buffer[8192];
 
     int n = recv_line_tcp(client_fd, buffer, sizeof(buffer));

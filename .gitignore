@@ -1,0 +1,22 @@
+# Build artifacts
+*.o
+/src/*.o
+/event_server
+/user
+
+# Runtime persistence (created by server)
+/USERS/
+/EVENTS/
+
+# Test outputs
+/test_reports/
+
+# Downloaded files from `show`
+/event_???_*
+
+# Editor/OS junk
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/

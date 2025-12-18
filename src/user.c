@@ -394,21 +394,10 @@ void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_
     }
 
     char command[512];
-    snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s\n",
-             logged_uid, logged_pass, name, date, time, capacity, basename);
-    
+    snprintf(command, sizeof(command), "CRE %s %s %s %s %s %d %s %zu ",
+             logged_uid, logged_pass, name, date, time, capacity, basename, filesize);
     if (send_all_tcp(tcp_fd, command, strlen(command)) < 0) {
         printf("Erro ao enviar comando\n");
-        close(tcp_fd);
-        free(file_data);
-        return;
-    }
-    
-    char size_line[64];
-    /* Protocolo: linha com tamanho, depois bytes do ficheiro, depois '\n'. */
-    snprintf(size_line, sizeof(size_line), "%zu\n", filesize);
-    if (send_all_tcp(tcp_fd, size_line, strlen(size_line)) < 0) {
-        printf("Erro ao enviar tamanho do ficheiro\n");
         close(tcp_fd);
         free(file_data);
         return;

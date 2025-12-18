@@ -258,9 +258,10 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
 
 void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in, char *args) {
     char command[BUFFER_SIZE];
-    char buf[BUFFER_SIZE];
     int tcp_fd;
-    ssize_t n;
+    (void)logged_uid;
+    (void)logged_in;
+    (void)args;
     
     if ((tcp_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("Erro ao criar socket TCP");
@@ -282,31 +283,102 @@ void cmd_list(struct sockaddr_in *server_addr, char *logged_uid, int *logged_in,
         return;
     }
     
-    n = read(tcp_fd, buf, sizeof(buf) - 1);
-    if (n < 0) {
-        perror("Erro ao receber resposta TCP");
-        close(tcp_fd);
-        return;
-    }
-    
-    if (n == 0) {
-        close(tcp_fd);
-        return;
-    }
-    
-    buf[n] = '\0';
-    
-    if (strncmp(buf, "RLS NOK", 7) == 0) {
-        printf("List: nenhum evento disponível\n");
-    } else {
-        printf("%s", buf);
-        while ((n = read(tcp_fd, buf, sizeof(buf) - 1)) > 0) {
-            buf[n] = '\0';
-            printf("%s", buf);
+    /* Ler a resposta completa (o servidor fecha a ligação no fim). */
+    char tmp[BUFFER_SIZE];
+    char *resp = NULL;
+    size_t used = 0;
+
+    for (;;) {
+        ssize_t n = read(tcp_fd, tmp, sizeof(tmp));
+        if (n < 0) {
+            perror("Erro ao receber resposta TCP");
+            free(resp);
+            close(tcp_fd);
+            return;
         }
+        if (n == 0) break;
+
+        char *new_resp = (char *)realloc(resp, used + (size_t)n + 1);
+        if (!new_resp) {
+            printf("List: memória insuficiente\n");
+            free(resp);
+            close(tcp_fd);
+            return;
+        }
+        resp = new_resp;
+        memcpy(resp + used, tmp, (size_t)n);
+        used += (size_t)n;
+        resp[used] = '\0';
     }
-    
+
     close(tcp_fd);
+
+    if (!resp || used == 0) {
+        free(resp);
+        return;
+    }
+
+    /* Remover '\n' final (se existir). */
+    while (used > 0 && (resp[used - 1] == '\n' || resp[used - 1] == '\r')) {
+        resp[--used] = '\0';
+    }
+
+    if (strncmp(resp, "RLS NOK", 7) == 0) {
+        printf("List: nenhum evento disponível\n");
+        free(resp);
+        return;
+    }
+
+    if (strcmp(resp, "RLS OK") == 0) {
+        printf("List: nenhum evento disponível\n");
+        free(resp);
+        return;
+    }
+
+    if (strncmp(resp, "RLS OK", 6) != 0) {
+        /* Fallback: imprimir cru se vier algo inesperado. */
+        printf("%s\n", resp);
+        free(resp);
+        return;
+    }
+
+    /* Parse: RLS OK <EID> <name> <state> <date> <time> ... */
+    char *saveptr = NULL;
+    char *tok = strtok_r(resp, " \t", &saveptr); /* RLS */
+    if (!tok || strcmp(tok, "RLS") != 0) {
+        printf("%s\n", resp);
+        free(resp);
+        return;
+    }
+    tok = strtok_r(NULL, " \t", &saveptr);       /* OK */
+    if (!tok || strcmp(tok, "OK") != 0) {
+        printf("%s\n", resp);
+        free(resp);
+        return;
+    }
+
+    printf("%-3s  %-10s  %-8s  %-10s  %-5s\n", "EID", "Nome", "Estado", "Data", "Hora");
+    printf("%-3s  %-10s  %-8s  %-10s  %-5s\n", "---", "----------", "--------", "----------", "-----");
+
+    for (;;) {
+        char *eid = strtok_r(NULL, " \t", &saveptr);
+        if (!eid) break;
+        char *name = strtok_r(NULL, " \t", &saveptr);
+        char *state_s = strtok_r(NULL, " \t", &saveptr);
+        char *date = strtok_r(NULL, " \t", &saveptr);
+        char *time_s = strtok_r(NULL, " \t", &saveptr);
+        if (!name || !state_s || !date || !time_s) break;
+
+        int state = atoi(state_s);
+        const char *state_label = "Aberto";
+        if (state == 3) state_label = "Fechado";
+        else if (state == 2) state_label = "Esgotado";
+        else if (state == 0) state_label = "Passado";
+
+        printf("%3s  %-10.10s  %-8s  %10s  %5s\n", eid, name, state_label, date, time_s);
+    }
+
+    free(resp);
 }
 
 void cmd_create(struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {

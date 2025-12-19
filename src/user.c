@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <ctype.h>
 #include "utils.h"
 
 #define DEFAULT_PORT "58092"
@@ -122,7 +123,6 @@ void cmd_logout(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, c
 }
 
 void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_uid, char *logged_pass, int *logged_in, char *args) {
-    char password[20];
     char command[BUFFER_SIZE];
     char response[BUFFER_SIZE];
     
@@ -130,18 +130,19 @@ void cmd_unregister(int udp_fd, struct sockaddr_in *server_addr, char *logged_ui
         printf("Não está logged in\n");
         return;
     }
-    
-    if (sscanf(args, "%19s", password) != 1) {
-        printf("Uso: unregister <password>\n");
-        return;
+
+    /* Neste cliente, unregister não recebe password como argumento; usa a da sessão. */
+    if (args && args[0] != '\0') {
+        /* Rejeitar argumentos extra (incluindo password) para cumprir o enunciado. */
+        const char *p = args;
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (*p) {
+            printf("Uso: unregister\n");
+            return;
+        }
     }
-    
-    if (!validate_password(password)) {
-        printf("Erro: Password deve ter exatamente 8 caracteres alfanuméricos\n");
-        return;
-    }
-    
-    snprintf(command, BUFFER_SIZE, "UNR %s %s\n", logged_uid, password);
+
+    snprintf(command, BUFFER_SIZE, "UNR %s %s\n", logged_uid, logged_pass);
     
     if (send_udp_command(udp_fd, server_addr, command, response) == 0) {
         show_reply(response);
@@ -197,7 +198,7 @@ void cmd_changepass(struct sockaddr_in *server_addr, char *logged_uid, char *log
     }
     
     if (sscanf(args, "%19s %19s", oldPassword, newPassword) != 2) {
-        printf("Uso: changepass <old_password> <new_password>\n");
+        printf("Uso: changePass <old_password> <new_password>\n");
         return;
     }
     
@@ -808,8 +809,8 @@ void print_help() {
     printf("\nComandos disponíveis:\n");
     printf("  -login <UID> <password>              - Login (UID: 6 dig, pass: 8 alfanum)\n");
     printf("  -logout                              - Fazer logout\n");
-    printf("  -unregister <password>               - Desregistar (pass: 8 alfanum)\n");
-    printf("  -changepass <old_pass> <new_pass>    - Alterar pass (8 alfanum)\n");
+    printf("  unregister                           - Desregistar (requer login)\n");
+    printf("  changePass <old_pass> <new_pass>     - Alterar pass (8 alfanum)\n");
     printf("  -create <name> <event_fname> <event_date> <num_attendees>\n");
     printf("      name: max 10 alfanum, event_date: DD-MM-YYYY HH:MM, num_attendees: 10..999\n");
     printf("  -close <EID>                         - Fechar evento (EID: 3 dig)\n");
@@ -884,7 +885,7 @@ int main(int argc, char *argv[]) {
             cmd_logout(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "unregister") == 0) {
             cmd_unregister(udp_fd, &server_addr, logged_uid, logged_pass, &logged_in, args);
-        } else if (strcmp(command, "changepass") == 0) {
+        } else if (strcmp(command, "changePass") == 0) {
             cmd_changepass(&server_addr, logged_uid, logged_pass, &logged_in, args);
         } else if (strcmp(command, "create") == 0) {
             cmd_create(&server_addr, logged_uid, logged_pass, &logged_in, args);
